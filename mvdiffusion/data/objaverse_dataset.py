@@ -20,6 +20,8 @@ import PIL.Image
 from .normal_utils import trans_normal, normal2img, img2normal
 import pdb
 
+from ipdb import set_trace as st    
+
 
 class ObjaverseDataset(Dataset):
     def __init__(self,
@@ -88,16 +90,16 @@ class ObjaverseDataset(Dataset):
         else:
             self.invalid_objects = []
         
-        
         self.all_objects = set(self.objects) - (set(self.invalid_objects) & set(self.objects))
         self.all_objects = list(self.all_objects)
-
-        if not validation:
-            self.all_objects = self.all_objects[:-num_validation_samples]
-        else:
-            self.all_objects = self.all_objects[-num_validation_samples:]
-        if num_samples is not None:
-            self.all_objects = self.all_objects[:num_samples]
+        
+        # [TODO]: recover this, laod all data
+        # if not validation:
+        #     self.all_objects = self.all_objects[:-num_validation_samples]
+        # else:
+        #     self.all_objects = self.all_objects[-num_validation_samples:]
+        # if num_samples is not None:
+        #     self.all_objects = self.all_objects[:num_samples]
 
         print("loading ", len(self.all_objects), " objects in the dataset")
 
@@ -249,10 +251,12 @@ class ObjaverseDataset(Dataset):
         normal = np.array(Image.open(img_path).resize(self.img_wh))
 
         assert normal.shape[-1] == 3 or normal.shape[-1] == 4 # RGB or RGBA
-
+        
+        
         if alpha is None and normal.shape[-1] == 4:
             alpha = normal[:, :, 3:] / 255.
-            normal = normal[:, :, :3]
+        
+        normal = normal[:, :, :3]
 
         normal = trans_normal(img2normal(normal), RT_w2c, RT_w2c_cond)
 
@@ -277,7 +281,8 @@ class ObjaverseDataset(Dataset):
 
     def __getitem_mix__(self, index, debug_object=None):
         if debug_object is not None:
-            object_name =  debug_object #
+            # object_name =  debug_object #
+            object_name = self.all_objects[index%len(self.all_objects)]
             set_idx = random.sample(range(0, self.groups_num), 1)[0] # without replacement
         else:
             object_name = self.all_objects[index%len(self.all_objects)]
@@ -311,7 +316,12 @@ class ObjaverseDataset(Dataset):
 
         # get the bg color
         bg_color = self.get_bg_color()
-
+        
+        # print(f"debug_object: {debug_object}")  
+        # print(f"all_objects: {self.all_objects}")
+        # print(f"object_name: {object_name}")
+        # print(f"subsecne_tag: {self.subscene_tag}")
+    
         if self.read_mask:
             cond_alpha = self.load_mask(os.path.join(self.root_dir,  object_name[:self.subscene_tag], object_name, "mask_%03d_%s.%s" % (set_idx, cond_view, self.suffix)), return_type='np')
         else:
@@ -327,6 +337,7 @@ class ObjaverseDataset(Dataset):
             normal_path = os.path.join(self.root_dir,  object_name[:self.subscene_tag], object_name, "normals_%03d_%s.%s" % (set_idx, view, self.suffix))
             depth_path = os.path.join(self.root_dir,  object_name[:self.subscene_tag], object_name, "depth_%03d_%s.%s" % (set_idx, view, self.suffix))
             if self.read_mask:
+                print("mask_path: ", mask_path)
                 alpha = self.load_mask(mask_path, return_type='np')
             else:
                 alpha = None

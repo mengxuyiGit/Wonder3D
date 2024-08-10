@@ -1,8 +1,10 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 revision: null
 train_dataset:
-  root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
-  object_list: './data_lists/lvis_uids_filter_by_vertex.json'
+  # root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
+  root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
+  object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
   groups_num: 1
@@ -13,9 +15,12 @@ train_dataset:
   # read_normal: true
   # read_color: true
   mix_color_normal: true
+  read_mask: false
 validation_dataset:
-  root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
-  object_list: './data_lists/lvis_uids_filter_by_vertex.json'
+  # root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
+  root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
+  object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
   groups_num: 1
@@ -26,9 +31,12 @@ validation_dataset:
   # read_normal: true
   # read_color: true
   mix_color_normal: true
+  read_mask: false
 validation_train_dataset:
-  root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
-  object_list: './data_lists/lvis_uids_filter_by_vertex.json'
+  # root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
+  root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
+  object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
   groups_num: 1
@@ -40,14 +48,15 @@ validation_train_dataset:
   # read_normal: true
   # read_color: true
   mix_color_normal: true
+  read_mask: false
 
 pred_type: 'mix'
 
 output_dir: 'outputs/wonder3D-mix'
 seed: 42
-train_batch_size: 32 
-validation_batch_size: 16
-validation_train_batch_size: 16
+train_batch_size: 1 # 32
+validation_batch_size:  1 # 16
+validation_train_batch_size:  1 # 16
 max_train_steps: 30000
 gradient_accumulation_steps: 2
 gradient_checkpointing: true
@@ -59,7 +68,7 @@ snr_gamma: 5.0
 use_8bit_adam: false
 allow_tf32: true
 use_ema: true  
-dataloader_num_workers: 64
+dataloader_num_workers: 4 #  64
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_weight_decay: 1.e-2
