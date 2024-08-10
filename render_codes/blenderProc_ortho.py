@@ -439,17 +439,18 @@ def save_images(object_file: str, viewidx: int) -> None:
         color_map = np.concatenate([color_map, valid_mask[:, :, None]], axis=-1)
 
         normal_map = np.concatenate([normal_map, valid_mask[:, :, None]], axis=-1)
+        print("normal_map.shape:",normal_map.shape)
 
-        Image.fromarray(color_map.astype(np.uint8)).save(
-        '{}/{}/rgb_{}.webp'.format(args.output_folder, object_uid, view), "webp", quality=100)
+        # Image.fromarray(color_map.astype(np.uint8)).save(
+        # '{}/{}/rgb_{}.webp'.format(args.output_folder, object_uid, view), "webp", quality=100)
         
-        Image.fromarray(normal_map.astype(np.uint8)).save(
-        '{}/{}/normals_{}.webp'.format(args.output_folder, object_uid, view), "webp", quality=100)
+        # Image.fromarray(normal_map.astype(np.uint8)).save(
+        # '{}/{}/normals_{}.webp'.format(args.output_folder, object_uid, view), "webp", quality=100)
         
-        # cv2.imwrite('{}/{}/rgb_{}.png'.format(args.output_folder, object_uid, view), color_map)
-        # cv2.imwrite('{}/{}/depth_{}.png'.format(args.output_folder,object_uid, view), depth_map)
-        # cv2.imwrite('{}/{}/normals_{}.png'.format(args.output_folder,object_uid, view), normal_map)
-        # cv2.imwrite('{}/{}/mask_{}.png'.format(args.output_folder,object_uid, view), valid_mask)
+        cv2.imwrite('{}/{}/rgb_{}.png'.format(args.output_folder, object_uid, view), color_map)
+        cv2.imwrite('{}/{}/depth_{}.png'.format(args.output_folder,object_uid, view), depth_map)
+        cv2.imwrite('{}/{}/normals_{}.png'.format(args.output_folder,object_uid, view), normal_map)
+        cv2.imwrite('{}/{}/mask_{}.png'.format(args.output_folder,object_uid, view), valid_mask)
 
 
 def download_object(object_url: str) -> str:

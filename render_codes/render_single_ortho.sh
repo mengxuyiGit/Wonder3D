@@ -1,7 +1,7 @@
-CUDA_VISIBLE_DEVICES=0 \
- blenderproc run --blender-install-path /mnt/pfs/users/longxiaoxiao/workplace/blender \
- blenderProc_nineviews_ortho.py \
- --object_path /mnt/pfs/data/objaverse_lvis_glbs/c7/c70e8817b5a945aca8bb37e02ddbc6f9.glb --view 0 \
+CUDA_VISIBLE_DEVICES=2 \
+ blenderproc run --blender-install-path /mnt/kostas-graid/sw/envs/xuyimeng/software \
+ blenderProc_ortho.py \
+ --object_path /home/chenwang/data/objaverse_lvis_glbs/zebra/000-005/64350a72ad11412b9725721d8b27d225.glb --view 0 \
  --output_folder ./out_renderings/ \
  --object_uid c70e8817b5a945aca8bb37e02ddbc6f9 \
  --ortho_scale 1.35 \
