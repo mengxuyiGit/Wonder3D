@@ -41,11 +41,13 @@ from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 
 # from mvdiffusion.data.dataset_nc import MVDiffusionDatasetV2 as MVDiffusionDataset
-from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
+# from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
+from mvdiffusion.data.lvis_dataset import ObjaverseDataset as MVDiffusionDataset
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
 from einops import rearrange
+from ipdb import set_trace as st
 
 import time
 
@@ -495,6 +497,7 @@ def main(
                     imgs_in, imgs_out = batch['imgs_in'], batch['normals_out']
 
                 bnm, Nv = imgs_in.shape[0], imgs_in.shape[1]
+                # print("imgs_in: ",imgs_in.shape)
 
                 # (B, Nv, Nce)
                 camera_embeddings = batch['camera_embeddings']
@@ -508,6 +511,7 @@ def main(
                 # (B*Nv, Nce)
                 camera_embeddings = rearrange(camera_embeddings, "B Nv Nce -> (B Nv) Nce")
                 # (B*Nv, Nce')
+                
                 if cfg.camera_embedding_type == 'e_de_da_sincos':
                     camera_embeddings = torch.cat([
                         torch.sin(camera_embeddings),
@@ -595,6 +599,8 @@ def main(
                     
                 # (B*Nv, 8, Hl, Wl)
                 latent_model_input = torch.cat([noisy_latents, cond_vae_embeddings], dim=1)
+                # print(latent_model_input.shape)
+                
 
                 model_pred = unet(
                     latent_model_input,
@@ -638,7 +644,19 @@ def main(
                     accelerator.clip_grad_norm_(unet.parameters(), cfg.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
+                
+                # # check the parameters of the model has indeed been updated
+                # for name, param in unet.named_parameters():
+                #     if param.requires_grad and param.grad is not None:
+                #         # assert torch.any(param.grad != 0)
+                #         print(name, param.grad.mean())
+                #     else:
+                #         print(name, " does not requires grad")
+                # st()
+                
                 optimizer.zero_grad()
+                
+             
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -678,19 +696,19 @@ def main(
                             'validation',
                             vis_dir
                         )
-                        log_validation(
-                            validation_train_dataloader,
-                            vae,
-                            feature_extractor,
-                            image_encoder,
-                            unet,
-                            cfg,
-                            accelerator,
-                            weight_dtype,
-                            global_step,
-                            'validation_train',
-                            vis_dir
-                        )                       
+                        # log_validation(
+                        #     validation_train_dataloader,
+                        #     vae,
+                        #     feature_extractor,
+                        #     image_encoder,
+                        #     unet,
+                        #     cfg,
+                        #     accelerator,
+                        #     weight_dtype,
+                        #     global_step,
+                        #     'validation_train',
+                        #     vis_dir
+                        # )                       
                         if cfg.use_ema:
                             # Switch back to the original UNet parameters.
                             ema_unet.restore(unet.parameters())                        
