@@ -1,7 +1,8 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 revision: null
 train_dataset:
-  root_dir: '/mnt/lingjie_cache/lvis_dataset/testing'  # change to your path
+  # root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
+root_dir: '/mnt/lingjie_cache/lvis_dataset/testing'  # change to your path
   object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
@@ -15,7 +16,7 @@ train_dataset:
   mix_color_normal: true
   read_mask: false
 validation_dataset:
-  root_dir: '/mnt/lingjie_cache/lvis_dataset/testing'  # change to your path
+  root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
@@ -29,7 +30,7 @@ validation_dataset:
   mix_color_normal: true
   read_mask: false
 validation_train_dataset:
-  root_dir: '/mnt/lingjie_cache/lvis_dataset/testing'  # change to your path
+  root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
@@ -46,7 +47,7 @@ validation_train_dataset:
 
 pred_type: 'color'
 
-output_dir: 'outputs/wonder3D-color'
+output_dir: 'outputs/wonder3D-color-fixed_6views-lvis'
 seed: 42
 train_batch_size: 32
 validation_batch_size:  16

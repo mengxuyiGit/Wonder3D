@@ -126,15 +126,14 @@ class ObjaverseDataset(Dataset):
         
         vid_cnt = 0
         if self.training:
-            vids = np.random.permutation(np.arange(6, 50 + 6)).tolist()[:self.num_views]
-            # vids = np.arange(0, 10).tolist()[:self.num_views]
+            # vids = np.random.permutation(np.arange(6, 50 + 6)).tolist()[:self.num_views]
+            vids = np.arange(0, 10).tolist()[:self.num_views]
         else:
             # fixed views
             # vids = np.arange(36, 73, 4).tolist() + np.arange(100).tolist()
             vids = np.arange(0, 50).tolist()
         
         elevations, azimuths = [], []
-        vids[0] = 0
         for vid in vids:
             image_path = os.path.join(uid, f'{vid:03d}.png')
             camera_path = os.path.join(uid, f'{vid:03d}.npy')

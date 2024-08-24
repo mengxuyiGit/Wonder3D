@@ -1,8 +1,8 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 revision: null
 train_dataset:
-  # root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
-  root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  # root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
   # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
@@ -17,8 +17,7 @@ train_dataset:
   mix_color_normal: true
   read_mask: false
 validation_dataset:
-  # root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
-  root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  root_dir: ${train_dataset.root_dir}  # change to your path
   # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
@@ -33,8 +32,7 @@ validation_dataset:
   mix_color_normal: true
   read_mask: false
 validation_train_dataset:
-  # root_dir: '/mnt/pfs/data/objaverse_renderings_ortho_9views/'  # change to your path
-  root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
+  root_dir: ${train_dataset.root_dir}  # change to your path
   # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
@@ -52,7 +50,7 @@ validation_train_dataset:
 
 pred_type: 'mix'
 
-output_dir: 'outputs/wonder3D-mix'
+output_dir: 'outputs/wonder3D-mix-lara'
 seed: 42
 train_batch_size: 1 # 32
 validation_batch_size:  1 # 16
