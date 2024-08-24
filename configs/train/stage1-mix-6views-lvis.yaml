@@ -1,15 +1,14 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 revision: null
 train_dataset:
-  # root_dir: '/home/xuyimeng/Repo/Wonder3D/render_codes/out_renderings'  # change to your path
   root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
-  # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
   groups_num: 1
   bg_color: 'three_choices'
-  img_wh: [256, 256]
+  # img_wh: [256, 256]
+  img_wh: [128, 128] # fast dev
   validation: false
   num_validation_samples: 32
   # read_normal: true
@@ -18,13 +17,12 @@ train_dataset:
   read_mask: false
 validation_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
-  # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
   groups_num: 1
   bg_color: 'white'
-  img_wh: [256, 256]
+  img_wh: ${train_dataset.img_wh}
   validation: true
   num_validation_samples: 32
   # read_normal: true
@@ -33,13 +31,12 @@ validation_dataset:
   read_mask: false
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
-  # object_list: './data_lists/lvis_uids_filter_by_vertex.json'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
   groups_num: 1
   bg_color: 'white'
-  img_wh: [256, 256]
+  img_wh: ${train_dataset.img_wh}
   validation: false
   num_validation_samples: 32
   num_samples: 32
@@ -50,11 +47,11 @@ validation_train_dataset:
 
 pred_type: 'mix'
 
-output_dir: 'outputs/wonder3D-mix-lara'
+output_dir: 'outputs/wonder3D-mix-128-lara'
 seed: 42
-train_batch_size: 1 # 32
-validation_batch_size:  1 # 16
-validation_train_batch_size:  1 # 16
+train_batch_size: 32
+validation_batch_size: 16
+validation_train_batch_size: 16
 max_train_steps: 30000
 gradient_accumulation_steps: 2
 gradient_checkpointing: true
@@ -78,11 +75,11 @@ logging_dir: logs
 mixed_precision: "fp16"
 report_to: 'tensorboard'
 local_rank: -1
-checkpointing_steps: 5000
+checkpointing_steps: 1000
 checkpoints_total_limit: 20
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
-validation_steps: 1250
+validation_steps: 200
 validation_sanity_check: true
 tracker_project_name: 'mvdiffusion-image-v1'
 
@@ -106,7 +103,7 @@ unet_from_pretrained_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
   projection_class_embeddings_input_dim: 10  # modify
   num_views: 6
-  sample_size: 32
+  sample_size: 16 # 32
   zero_init_conv_in: true
   zero_init_camera_projection: false
   cd_attention_last: false
