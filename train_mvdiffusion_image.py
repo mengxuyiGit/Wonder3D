@@ -467,7 +467,7 @@ def main(
             )
             cfg.resume_from_checkpoint = None
         else:
-            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.print(f"Resuming from checkpoint {os.path.join(cfg.output_dir, path)}")
             accelerator.load_state(os.path.join(cfg.output_dir, path))
             # global_step = int(path.split("-")[1])
             global_step = 0
@@ -475,6 +475,7 @@ def main(
             resume_global_step = global_step * cfg.gradient_accumulation_steps
             first_epoch = global_step // num_update_steps_per_epoch
             resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
+            print(f"resume_global_step: {resume_global_step}, first_epoch: {first_epoch}, resume_step: {resume_step}")
 
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)

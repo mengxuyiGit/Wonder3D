@@ -47,13 +47,13 @@ validation_train_dataset:
 
 pred_type: 'mix'
 
-output_dir: 'outputs/wonder3D-mix-128-lara'
+output_dir: 'outputs/debug/wonder3D-mix-128-lara'
 seed: 42
 train_batch_size: 32
 validation_batch_size: 16
 validation_train_batch_size: 16
 max_train_steps: 30000
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 1
 gradient_checkpointing: true
 learning_rate: 1.e-4
 scale_lr: false
