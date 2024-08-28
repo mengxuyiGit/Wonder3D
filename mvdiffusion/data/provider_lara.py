@@ -263,12 +263,20 @@ class gobjverse(torch.utils.data.Dataset):
         normal_final = normals
         V, _, H, W = normal_final.shape # [1, h, w, 3]
         normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
+        # normalize normal
+        normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
+        # AFTER rotating normal, map normal to range [0,1]
+        normal_final = normal_final / 2.0 + 0.5
+        # make the bg of normal map to img bg
+        # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
+        normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
+        
     
         # resize render ground-truth images, range still in [0, 1]
         results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         results['imgs_in'] = results['imgs_out'][0].unsqueeze(0).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
         results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-        results['normals_out'] = normal_final
+        results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
@@ -279,9 +287,9 @@ class gobjverse(torch.utils.data.Dataset):
         elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # fixed only use 4 views to train
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
         
-        print("elevations_cond", elevations_cond)
-        print("elevations", elevations)
-        print("azimuths", azimuths)
+        # print("elevations_cond", elevations_cond)
+        # print("elevations", elevations)
+        # print("azimuths", azimuths)
         
         results.update({
             'elevations_cond': torch.deg2rad(elevations_cond),
