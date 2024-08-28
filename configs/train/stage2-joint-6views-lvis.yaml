@@ -1,8 +1,8 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 # modify the unet path; use the stage 1 checkpoint
 # pretrained_unet_path: 'outputs/wonder3D-mix/checkpoint-30000/'
-# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/unet-3000/diffusion_pytorch_model.bin'
-pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/checkpoint/unet_ema'
+pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/unet-3000'
+# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/checkpoint/unet_ema'
 revision: null
 train_dataset:
   root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
@@ -14,7 +14,7 @@ train_dataset:
   # img_wh: [256, 256]
   img_wh: [128, 128] # fast dev
   validation: false
-  num_validation_samples: 32
+  num_validation_samples: 4
   read_normal: true
   read_color: true
 validation_dataset:
@@ -27,7 +27,7 @@ validation_dataset:
   # img_wh: [256, 256]
   img_wh: ${train_dataset.img_wh}
   validation: true
-  num_validation_samples: 32
+  num_validation_samples: 4
   read_normal: true
   read_color: true
 validation_train_dataset:
@@ -40,16 +40,16 @@ validation_train_dataset:
   # img_wh: [256, 256]
   img_wh: ${train_dataset.img_wh}
   validation: false
-  num_validation_samples: 32
+  num_validation_samples: 4 # 32
   num_samples: 32
   read_normal: true
   read_color: true
 
 # output_dir: 'outputs/debug'
-output_dir: 'outputs/debug/wonder3D-joint'
-# output_dir: 'outputs/wonder3D-joint'
+# output_dir: 'outputs/debug/wonder3D-joint'
+output_dir: 'outputs/wonder3D-joint-128-lara'
 seed: 42
-train_batch_size: 32 # original paper uses 32
+train_batch_size: 16 # original paper uses 32
 validation_batch_size: 16
 validation_train_batch_size: 16
 max_train_steps: 20000
@@ -63,7 +63,7 @@ snr_gamma: 5.0
 use_8bit_adam: false
 allow_tf32: true
 use_ema: true  
-dataloader_num_workers: 64
+dataloader_num_workers: 8 # 64
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_weight_decay: 1.e-2
@@ -75,13 +75,13 @@ logging_dir: logs
 mixed_precision: "fp16"
 report_to: 'tensorboard'
 local_rank: -1
-checkpointing_steps: 5000
+checkpointing_steps: 1000
 checkpoints_total_limit: null
 last_global_step: 5000
 
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
-validation_steps: 1000
+validation_steps: 200
 validation_sanity_check: true
 tracker_project_name: 'mvdiffusion-image-v1'
 

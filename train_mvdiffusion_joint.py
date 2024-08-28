@@ -152,6 +152,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         camera_embeddings = torch.cat([batch['camera_embeddings']]*2, dim=0)
 
         task_embeddings = torch.cat([batch['normal_task_embeddings'], batch['color_task_embeddings']], dim=0)
+        # task_embeddings = torch.cat([batch['normal_task_embeddings'], batch['normal_task_embeddings']], dim=0)
 
         camera_task_embeddings = torch.cat([camera_embeddings, task_embeddings], dim=-1)
 
@@ -290,7 +291,7 @@ def main(
         for name, module in unet.named_modules():
             if name.endswith(tuple(cfg.trainable_modules)):
                 for params in module.parameters():
-                    # print("trainable: ", params)
+                    print("trainable: ", params)
                     params.requires_grad = True                
 
     if cfg.enable_xformers_memory_efficient_attention:
@@ -510,6 +511,7 @@ def main(
                 imgs_in, colors_out, normals_out = batch['imgs_in'], batch['imgs_out'], batch['normals_out']
 
                 bnm, Nv = imgs_in.shape[:2]
+                # print("imges_in shape: ", imgs_in.shape, "colors_out shape: ", colors_out.shape, "normals_out shape: ", normals_out.shape)
                 
                 # repeat  (2B, Nv, 3, H, W)
                 imgs_in = torch.cat([imgs_in]*2, dim=0)
@@ -726,19 +728,19 @@ def main(
                             'validation',
                             vis_dir
                         )
-                        log_validation(
-                            validation_train_dataloader,
-                            vae,
-                            feature_extractor,
-                            image_encoder,
-                            unet,
-                            cfg,
-                            accelerator,
-                            weight_dtype,
-                            global_step,
-                            'validation_train',
-                            vis_dir
-                        )                       
+                        # log_validation(
+                        #     validation_train_dataloader,
+                        #     vae,
+                        #     feature_extractor,
+                        #     image_encoder,
+                        #     unet,
+                        #     cfg,
+                        #     accelerator,
+                        #     weight_dtype,
+                        #     global_step,
+                        #     'validation_train',
+                        #     vis_dir
+                        # )                       
                         if cfg.use_ema:
                             # Switch back to the original UNet parameters.
                             ema_unet.restore(unet.parameters())                        
