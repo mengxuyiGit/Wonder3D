@@ -40,7 +40,8 @@ from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
 from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 
-from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
+# from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
+from mvdiffusion.data.provider_lara import gobjverse as MVDiffusionDataset
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
@@ -48,6 +49,7 @@ from einops import rearrange
 
 import time
 import pdb
+from ipdb import set_trace as st
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -248,7 +250,8 @@ def main(
         unet = UNetMV2DConditionModel.from_pretrained_2d(cfg.pretrained_model_name_or_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
     else:
         print("load pre-trained unet from ", cfg.pretrained_unet_path)
-        unet = UNetMV2DConditionModel.from_pretrained(cfg.pretrained_unet_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
+        # unet = UNetMV2DConditionModel.from_pretrained(cfg.pretrained_unet_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
+        unet = UNetMV2DConditionModel.from_pretrained_2d(cfg.pretrained_unet_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
     if cfg.use_ema:
         ema_unet = EMAModel(unet.parameters(), model_cls=UNetMV2DConditionModel, model_config=unet.config)
 
