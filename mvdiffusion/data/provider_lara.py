@@ -82,6 +82,7 @@ class gobjverse(torch.utils.data.Dataset):
             #     i_test = [0]
             #     i_train = i_test*1000
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
+            self.scenes_name = self.scenes_name[:100] # for debug
             print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
             
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
@@ -161,14 +162,14 @@ class gobjverse(torch.utils.data.Dataset):
         else:
             read_color, read_normal, read_depth = False, True, False
         
-        if read_color:
-            images = images
-        if read_normal:
-            images = normal_final
-            
         # resize render ground-truth images, range still in [0, 1]
-        results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
-        results['imgs_in'] = results['imgs_out'][0].unsqueeze(0).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+        ## important: the input images for both color and normal are color
+        if read_color:
+            results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        if read_normal:
+            results['imgs_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+            
         results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
 
         # opengl to colmap camera for gaussian renderer
