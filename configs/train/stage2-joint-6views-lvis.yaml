@@ -1,8 +1,9 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 # modify the unet path; use the stage 1 checkpoint
 # pretrained_unet_path: 'outputs/wonder3D-mix/checkpoint-30000/'
-pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/unet-3000'
+pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/wonder3D-mix-128-lara-4gpus/unet-3000'
 # pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/checkpoint/unet_ema'
+# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/wonder3D-joint-128-lara/unet-2000/unet'
 revision: null
 train_dataset:
   root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
@@ -47,7 +48,7 @@ validation_train_dataset:
 
 # output_dir: 'outputs/debug'
 # output_dir: 'outputs/debug/wonder3D-joint'
-output_dir: 'outputs/wonder3D-joint-128-lara'
+output_dir: 'outputs/wonder3D-joint-128-lara-fixed_cfg_inference'
 seed: 42
 train_batch_size: 16 # original paper uses 32
 validation_batch_size: 16
@@ -113,6 +114,7 @@ unet_from_pretrained_kwargs:
   multiview_attention: true
   sparse_mv_attention: false
   mvcd_attention: false
+  low_cpu_mem_usage: false # added to load ckpt 
 
 num_views: 6
 camera_embedding_type: 'e_de_da_sincos'
