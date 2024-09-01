@@ -88,6 +88,8 @@ class gobjverse(torch.utils.data.Dataset):
         self.n_group = 4 # cfg.n_group
         
         self.load_normal = True
+        
+        self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] 
             
         # # default camera intrinsics
         # assert opt.fovy == 39.6
@@ -119,8 +121,7 @@ class gobjverse(torch.utils.data.Dataset):
             src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
             view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
-        # fixed_input_views = np.arange(25, 37)[::3].tolist() + [26, 36] # + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
-        fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
+        fixed_input_views = self.fixed_input_views
         view_id = fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
         # print("view_id", len(view_id))1
         assert len(view_id) == self.num_views
@@ -236,7 +237,7 @@ class gobjverse(torch.utils.data.Dataset):
             src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
             view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
-        fixed_input_views = np.arange(25, 37)[::3].tolist() + [2,22] # equals to the original GOBjaverse 27, 30, 33, 36, 2, 22 (because h5 do not include the 25,26 views)
+        fixed_input_views = self.fixed_input_views
         view_id = fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
         # print("view_id", len(view_id))
         assert len(view_id) == self.num_views
