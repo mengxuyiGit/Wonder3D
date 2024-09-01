@@ -82,7 +82,6 @@ class gobjverse(torch.utils.data.Dataset):
             #     i_test = [0]
             #     i_train = i_test*1000
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
-            self.scenes_name = self.scenes_name[:100] # for debug
             print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
             
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
