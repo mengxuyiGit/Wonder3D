@@ -74,13 +74,15 @@ class gobjverse(torch.utils.data.Dataset):
         mix_color_normal: bool = False,
         suffix: str = 'png',
         subscene_tag: int = 3,
-        backup_scene: str = "9438abf986c7453a9f4df7c34aa2e65b"
+        backup_scene: str = "9438abf986c7453a9f4df7c34aa2e65b",
+        overfit: bool = False,
         ):
         super(gobjverse, self).__init__()
 
         self.training = not validation
         self.num_views = num_views
         self.img_wh = img_wh
+        self.overfit = overfit
         # self.num_cond = 1
         self.mix_color_normal = mix_color_normal 
     
@@ -104,76 +106,52 @@ class gobjverse(torch.utils.data.Dataset):
             i_test = np.arange(len(scenes_name))[::10][:10] # only test 10 scenes
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
-            # if opt.overfit_one_scene:
-            #     i_test = [0]
-            #     i_train = i_test*1000
+            if overfit:
+                i_test = [0]
+                i_train = i_test*1000
+                i_test = i_test*10
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
             
             print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
             
         # splatter mv data
-        final_scenes_name = []
-        self.data_path_splatter = {}
-        # self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/0/20240824-025018-lara_splatter_6views0_24-epoch2_6000-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference/"
-
         self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
-        pattern = f"{self.splatter_root}/*"
-        all_scene_paths = sorted(glob.glob(pattern))
+     
         
-        # ########################################################################
-        # for scene_path in all_scene_paths:
-        #     scene_name = scene_path.split('/')[-1].split('_')[-1]
-        #     print("scene_name", scene_name)
-            
-        #     if scene_name not in self.scenes_name:
-        #         # print("splatter_name not in lara scenes_name", scene_name)
-        #         continue 
-        #     if (not os.path.isdir(scene_path)) or (not os.path.exists(os.path.join(scene_path, "splatters_mv.pt"))):
-        #         # print("scene_path not exist", scene_path)
-        #         continue
-
-        #     self.data_path_splatter[scene_name] = scene_path
-        #     final_scenes_name.append(scene_name)
-        # # st()
-        # assert len(final_scenes_name) == len(self.data_path_splatter.keys())
-        # self.scenes_name = final_scenes_name
-        # print("Number of scenes [final]", len(self.scenes_name))    
-        # st()
-
-        ########################################################################
-        self.lmdb_path = f'/mnt/lingjie_cache/xuyimeng/lara/data_path_splatter_{self.split}_whole.lmdb'
+        ##################### LMDB CREATION ##################################################
+        coverage = "overfit" if overfit else "whole"
+        self.lmdb_path = f'/mnt/lingjie_cache/xuyimeng/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
         create_lmdb = False
         self.lmdbFiles = None
-        self.read_all_keys()
-        if False:
-            final_scenes_name = []
-            
+        
+        if True: # create lmdb
             if not os.path.exists(self.lmdb_path):
                 create_lmdb = True
             else:
                 # Open the LMDB database in read-only mode
                 env = lmdb.open(self.lmdb_path, readonly=True)
                 with env.begin() as txn:
-                    # Create a cursor to iterate through the keys
                     cursor = txn.cursor()
                     num_keys = sum(1 for _ in cursor)
                     print(f"Number of keys in the database: {num_keys}")
-                    # Check if the number of keys is less than 260k
-                    if num_keys < 200000 and self.split == 'train':
-                        print("Number of keys in train split is less than 260k. Creation is needed.")
-                        create_lmdb = True
-                    elif num_keys < 10 and self.split == 'test':
-                        print("Number of keys in test split is less than 10k. Creation is needed.")
-                        create_lmdb = True
+                    # Check if the number of keys is less than required
+                    if overfit:
+                        create_lmdb = (num_keys < 1)
+                        print("Overfitting, 0 keys. Creation is needed.") if create_lmdb else print("Overfitting, 1 key is enough.")
+                    else:
+                        desired_num_keys = 200000 if self.split == 'train' else len(self.scenes_name)
+                        create_lmdb = (num_keys < desired_num_keys)
+                        print(f"Number of keys in {self.split} split is less than {len(self.scenes_name)}. Creation is needed.") if create_lmdb else print(f"Number of keys in {self.split} split is enough: {num_keys}")
                         
                 env.close()
         
             if create_lmdb:
                 self.create_lmdb_database()
-            # else:
-            #     self.open_lmdb_database()
-            #     self.read_all_keys()
+        ########################################################################
 
+        # read all keys from lmdb
+        self.read_all_keys()
+       
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
         self.n_group = 4 # cfg.n_group
         
@@ -197,21 +175,20 @@ class gobjverse(torch.utils.data.Dataset):
                 return None
             return scene_name, scene_path
 
-        final_scenes_name = []
-        self.data_path_splatter = {}
+        pattern = f"{self.splatter_root}/*"
+        all_scene_paths = sorted(glob.glob(pattern))
 
+        final_scenes_name = []
         with ThreadPoolExecutor() as executor:
-            results = executor.map(check_scene, self.all_scene_paths)
+            results = executor.map(check_scene, all_scene_paths)
             with env.begin(write=True) as txn:
                 for result in results:
                     if result:
                         scene_name, scene_path = result
-                        self.data_path_splatter[scene_name] = scene_path
-                        final_scenes_name.append(scene_name)
                         txn.put(scene_name.encode('utf-8'), pickle.dumps(scene_path))  # LMDB
+                        final_scenes_name.append(scene_name)
 
-        self.scenes_name = final_scenes_name
-        print("Number of scenes [final] [create lmdb]", len(self.scenes_name))
+        print("Number of scenes [final] [create lmdb]", len(final_scenes_name))
         env.close()
 
     def open_lmdb_database(self):
@@ -227,20 +204,12 @@ class gobjverse(torch.utils.data.Dataset):
         with self.lmdb_env.begin() as txn:
             cursor = txn.cursor()
             for key, value in cursor:
-                final_scenes_name.append(key.decode('utf-8'))  # Decode the key if necessary
+                # if self.scenes_name.get(key.decode('utf-8')) is not None:
+                if np.any(self.scenes_name == key.decode('utf-8')):
+                    final_scenes_name.append(key.decode('utf-8'))  # Decode the key if necessary
         self.scenes_name = final_scenes_name
         print("Number of scenes [final] [read existing lmdb]", len(self.scenes_name))
         self.close_lmdb_database()
-
-    def _get_scene_path_by_name(self, key):
-        # Each thread/process should open its own transaction
-        with self.lmdb_env.begin() as txn:
-            value = txn.get(key.encode('utf-8'))
-            if value is not None:
-                return pickle.loads(value)
-            else:
-                print(f"Key {key} not found.")
-                return None
 
     def __del__(self):
         # Close the LMDB environment when the dataloader is destroyed
@@ -302,11 +271,12 @@ class gobjverse(torch.utils.data.Dataset):
 
         
         # read splatter
-        # splatter_uid = self.data_path_splatter[scene_name]
-        # splatter_uid = self._get_scene_path_by_name(scene_name)
         splatter_uid = self.lmdbFiles.get_data(scene_name)
     
-        selected_attr = random.choice(gt_attr_keys)
+        if self.overfit and self.split == 'test':
+            selected_attr = gt_attr_keys[index%5]
+        else:
+            selected_attr = random.choice(gt_attr_keys)
         # selected_attr = 'rgbs'
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
         normal_final = splatter_original_Channel_mvimage_dict[selected_attr]
