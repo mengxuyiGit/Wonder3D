@@ -107,7 +107,7 @@ class gobjverse(torch.utils.data.Dataset):
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
             if overfit:
-                i_test = [0]
+                i_test = [90]
                 i_train = i_test*1000
                 i_test = i_test*10
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
@@ -207,6 +207,8 @@ class gobjverse(torch.utils.data.Dataset):
                 # if self.scenes_name.get(key.decode('utf-8')) is not None:
                 if np.any(self.scenes_name == key.decode('utf-8')):
                     final_scenes_name.append(key.decode('utf-8'))  # Decode the key if necessary
+        if self.overfit:
+            final_scenes_name = final_scenes_name*len(self.scenes_name)
         self.scenes_name = final_scenes_name
         print("Number of scenes [final] [read existing lmdb]", len(self.scenes_name))
         self.close_lmdb_database()
