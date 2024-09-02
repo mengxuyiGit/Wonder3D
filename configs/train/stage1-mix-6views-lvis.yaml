@@ -15,7 +15,7 @@ train_dataset:
   # read_color: true
   mix_color_normal: true
   read_mask: false
-  overfit: false
+  overfit: true
 validation_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -50,13 +50,13 @@ validation_train_dataset:
 
 pred_type: 'mix'
 
-output_dir: 'outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus'
+output_dir: 'outputs/overfit/wonder3D-mix-128-lara-splatter-lmdb'
 seed: 42
 train_batch_size: 16
 validation_batch_size: ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 30000
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 1
 gradient_checkpointing: false
 learning_rate: 1.e-4
 scale_lr: false
