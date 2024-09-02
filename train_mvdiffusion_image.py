@@ -43,7 +43,8 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 # from mvdiffusion.data.dataset_nc import MVDiffusionDatasetV2 as MVDiffusionDataset
 # from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
 # from mvdiffusion.data.lvis_dataset import ObjaverseDataset as MVDiffusionDataset
-from mvdiffusion.data.provider_lara import gobjverse as MVDiffusionDataset
+# from mvdiffusion.data.provider_lara import gobjverse as MVDiffusionDataset
+from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
@@ -386,15 +387,22 @@ def main(
         **cfg.validation_train_dataset
     )
 
+    
+    def random_init(id):
+        torch.utils.data.get_worker_info().dataset.worker_init_open_db()
+
     # DataLoaders creation:
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, batch_size=cfg.train_batch_size, shuffle=True, num_workers=cfg.dataloader_num_workers,
+        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
     )
     validation_dataloader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers
+        validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
     )
     validation_train_dataloader = torch.utils.data.DataLoader(
-        validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers
+        validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
     )
 
     # Prepare everything with our `accelerator`.

@@ -10,7 +10,7 @@ train_dataset:
   # img_wh: [256, 256]
   img_wh: [128, 128] # fast dev
   validation: false
-  num_validation_samples: 32
+  num_validation_samples: 32  
   # read_normal: true
   # read_color: true
   mix_color_normal: true
@@ -47,13 +47,13 @@ validation_train_dataset:
 
 pred_type: 'mix'
 
-output_dir: 'outputs/debug/wonder3D-mix-128-lara'
+output_dir: 'outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus'
 seed: 42
-train_batch_size: 32
-validation_batch_size: 16
+train_batch_size: 16
+validation_batch_size: ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 30000
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 2
 gradient_checkpointing: true
 learning_rate: 1.e-4
 scale_lr: false
@@ -101,7 +101,7 @@ validation_grid_nrow: 12
 
 unet_from_pretrained_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
-  projection_class_embeddings_input_dim: 10  # modify
+  projection_class_embeddings_input_dim: 16  # modify: 10 for normal & color
   num_views: 6
   sample_size: 16 # 32
   zero_init_conv_in: true

@@ -133,19 +133,48 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         self.camera_embedding_type: str = camera_embedding_type
         self.num_views: int = num_views
 
-        self.camera_embedding =  torch.tensor(
-            [[ 0.0000,  0.0000,  0.0000,  1.0000,  0.0000],
-            [ 0.0000, -0.2362,  0.8125,  1.0000,  0.0000],
-            [ 0.0000, -0.1686,  1.6934,  1.0000,  0.0000],
-            [ 0.0000,  0.5220,  3.1406,  1.0000,  0.0000],
-            [ 0.0000,  0.6904,  4.8359,  1.0000,  0.0000],
-            [ 0.0000,  0.3733,  5.5859,  1.0000,  0.0000],
-            [ 0.0000,  0.0000,  0.0000,  0.0000,  1.0000],
-            [ 0.0000, -0.2362,  0.8125,  0.0000,  1.0000],
-            [ 0.0000, -0.1686,  1.6934,  0.0000,  1.0000],
-            [ 0.0000,  0.5220,  3.1406,  0.0000,  1.0000],
-            [ 0.0000,  0.6904,  4.8359,  0.0000,  1.0000],
-            [ 0.0000,  0.3733,  5.5859,  0.0000,  1.0000]], dtype=torch.float16)
+    
+        if self.unet.config.projection_class_embeddings_input_dim == 16:
+            # self.camera_embedding =  torch.tensor(
+            #     [[ 0.0000,  0.0000,  0.0000,  1.0000,  0.0000, 0, 0, 0],
+            #     [ 0.0000, -0.2362,  0.8125,  1.0000,  0.0000, 0, 0 , 0],
+            #     [ 0.0000,  0.5220,  3.1406,  0.0000,  1.0000, 0, 0, 0],
+            #     [ 0.0000,  0.6904,  4.8359,  0.0000,  1.0000, 0, 0, 0],
+            #     [ 0.0000,  0.3733,  5.5859,  0.0000,  1.0000, 0,0,0]], dtype=torch.float16)
+            # pass
+            cameras =  torch.tensor(
+                [[ 0.0000,  0.0000,  0.0000],
+                [ 0.0000, -0.2362,  0.8125],
+                [ 0.0000, -0.1686,  1.6934],
+                [ 0.0000,  0.5220,  3.1406],
+                [ 0.0000,  0.6904,  4.8359],
+                [ 0.0000,  0.3733,  5.5859]], dtype=torch.float16)
+            class_labels = torch.eye(5)
+            
+            emb_list = []
+            for l in class_labels:
+                for c in cameras:
+                    emb = torch.cat([c, l], dim=-1)
+                    emb_list.append(emb)
+            self.camera_embedding = torch.stack(emb_list, dim=0)
+            # print("self.camera_embedding:", self.camera_embedding.shape) #[30,8]
+            # from ipdb import set_trace as st; st()
+            
+        else:
+            self.camera_embedding =  torch.tensor(
+                [[ 0.0000,  0.0000,  0.0000,  1.0000,  0.0000],
+                [ 0.0000, -0.2362,  0.8125,  1.0000,  0.0000],
+                [ 0.0000, -0.1686,  1.6934,  1.0000,  0.0000],
+                [ 0.0000,  0.5220,  3.1406,  1.0000,  0.0000],
+                [ 0.0000,  0.6904,  4.8359,  1.0000,  0.0000],
+                [ 0.0000,  0.3733,  5.5859,  1.0000,  0.0000],
+                [ 0.0000,  0.0000,  0.0000,  0.0000,  1.0000],
+                [ 0.0000, -0.2362,  0.8125,  0.0000,  1.0000],
+                [ 0.0000, -0.1686,  1.6934,  0.0000,  1.0000],
+                [ 0.0000,  0.5220,  3.1406,  0.0000,  1.0000],
+                [ 0.0000,  0.6904,  4.8359,  0.0000,  1.0000],
+                [ 0.0000,  0.3733,  5.5859,  0.0000,  1.0000]], dtype=torch.float16)
+        
 
     def _encode_image(self, image_pil, device, num_images_per_prompt, do_classifier_free_guidance):
         dtype = next(self.image_encoder.parameters()).dtype
@@ -278,8 +307,9 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
                 torch.sin(camera_embedding),
                 torch.cos(camera_embedding)
             ], dim=-1)
+            print("camera_embedding (prepare_camera_embedding):", camera_embedding.shape)
             assert self.unet.config.class_embed_type == 'projection'
-            assert self.unet.config.projection_class_embeddings_input_dim == 6 or self.unet.config.projection_class_embeddings_input_dim == 10
+            assert self.unet.config.projection_class_embeddings_input_dim == 6 or self.unet.config.projection_class_embeddings_input_dim == 10 or self.unet.config.projection_class_embeddings_input_dim == 16
         else:
             raise NotImplementedError
         
