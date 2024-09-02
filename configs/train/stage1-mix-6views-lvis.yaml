@@ -15,6 +15,7 @@ train_dataset:
   # read_color: true
   mix_color_normal: true
   read_mask: false
+  overfit: false
 validation_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -29,6 +30,7 @@ validation_dataset:
   # read_color: true
   mix_color_normal: true
   read_mask: false
+  overfit: ${train_dataset.overfit}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -44,6 +46,7 @@ validation_train_dataset:
   # read_color: true
   mix_color_normal: true
   read_mask: false
+  overfit: ${train_dataset.overfit}
 
 pred_type: 'mix'
 
@@ -54,7 +57,7 @@ validation_batch_size: ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 30000
 gradient_accumulation_steps: 2
-gradient_checkpointing: true
+gradient_checkpointing: false
 learning_rate: 1.e-4
 scale_lr: false
 lr_scheduler: "constant_with_warmup"
@@ -75,7 +78,7 @@ logging_dir: logs
 mixed_precision: "fp16"
 report_to: 'tensorboard'
 local_rank: -1
-checkpointing_steps: 1000
+checkpointing_steps: 200
 checkpoints_total_limit: 20
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
