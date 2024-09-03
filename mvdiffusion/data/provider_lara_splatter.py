@@ -106,6 +106,12 @@ class gobjverse(torch.utils.data.Dataset):
             i_test = np.arange(len(scenes_name))[::10][:10] # only test 10 scenes
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
+            
+            # debug = True
+            # if debug:
+            #     i_test = i_test[:2]
+            #     i_train = i_train[:100]
+            
             if overfit:
                 i_test = [90]
                 i_train = i_test*1000
@@ -224,21 +230,20 @@ class gobjverse(torch.utils.data.Dataset):
         # print("scene_name", scene_name)
         scene_info = self.metas[scene_name]
 
-        if self.split=='train' and self.n_group > 1:
-            # print("111")
-            src_view_id = [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
-            view_id = src_view_id + [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
-        elif self.n_group == 1:
-            # print("222")
-            src_view_id = [scene_info['groups'][f'groups_4_{i}'][0] for i in range(1)]
-            view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
-        else:
-            # print("333")
-            src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
-            view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
+        # if self.split=='train' and self.n_group > 1:
+        #     # print("111")
+        #     src_view_id = [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
+        #     view_id = src_view_id + [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
+        # elif self.n_group == 1:
+        #     # print("222")
+        #     src_view_id = [scene_info['groups'][f'groups_4_{i}'][0] for i in range(1)]
+        #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
+        # else:
+        #     # print("333")
+        #     src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
+        #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
         view_id = self.fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
-        # print("view_id", len(view_id))1
         assert len(view_id) == self.num_views
 
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name)
@@ -359,18 +364,18 @@ class gobjverse(torch.utils.data.Dataset):
         # print("scene_name", scene_name)
         scene_info = self.metas[scene_name]
 
-        if self.split=='train' and self.n_group > 1:
-            # print("111")
-            src_view_id = [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
-            view_id = src_view_id + [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
-        elif self.n_group == 1:
-            # print("222")
-            src_view_id = [scene_info['groups'][f'groups_4_{i}'][0] for i in range(1)]
-            view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
-        else:
-            # print("333")
-            src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
-            view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
+        # if self.split=='train' and self.n_group > 1:
+        #     # print("111")
+        #     src_view_id = [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
+        #     view_id = src_view_id + [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
+        # elif self.n_group == 1:
+        #     # print("222")
+        #     src_view_id = [scene_info['groups'][f'groups_4_{i}'][0] for i in range(1)]
+        #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
+        # else:
+        #     # print("333")
+        #     src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
+        #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
         view_id = self.fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
         # print("view_id", len(view_id))
@@ -410,8 +415,22 @@ class gobjverse(torch.utils.data.Dataset):
         # resize render ground-truth images, range still in [0, 1]
         results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         results['imgs_in'] = results['imgs_out'][0].unsqueeze(0).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
-        results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-        results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+
+        rendering_loss_2dgs = False
+        if rendering_loss_2dgs:
+            results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
+            results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+        else:
+            del results['imgs_out']
+        
+        # read splatter attriubtes
+        splatter_uid = self.lmdbFiles.get_data(scene_name)
+        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid) # [-1,1]
+        for key, value in splatter_original_Channel_mvimage_dict.items():
+            results[f"{key}_out"] = einops.rearrange(value, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
+            # print(key, results[f"{key}_out"].shape)
+            # assert results[f"{key}_out"].shape[-2:] == self.img_wh
+        
         
         # opengl to colmap camera for gaussian renderer
         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
@@ -422,9 +441,6 @@ class gobjverse(torch.utils.data.Dataset):
         elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # fixed only use 4 views to train
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
         
-        # print("elevations_cond", elevations_cond)
-        # print("elevations", elevations)
-        # print("azimuths", azimuths)
         
         results.update({
             'elevations_cond': torch.deg2rad(elevations_cond),
@@ -438,13 +454,20 @@ class gobjverse(torch.utils.data.Dataset):
         camera_embeddings = torch.stack([elevations_cond, elevations-elevations_cond, azimuths-azimuths_cond], dim=-1) # (Nv, 3)
         results['camera_embeddings'] = camera_embeddings
 
-        # task embedding
-        normal_class = torch.tensor([1, 0]).float()
-        normal_task_embeddings = torch.stack([normal_class]*self.num_views, dim=0)  # (Nv, 2)
-        color_class = torch.tensor([0, 1]).float()
-        color_task_embeddings = torch.stack([color_class]*self.num_views, dim=0)  # (Nv, 2)
-        results['normal_task_embeddings'] = normal_task_embeddings
-        results['color_task_embeddings'] = color_task_embeddings
+        # # task embedding
+        # normal_class = torch.tensor([1, 0]).float()
+        # normal_task_embeddings = torch.stack([normal_class]*self.num_views, dim=0)  # (Nv, 2)
+        # color_class = torch.tensor([0, 1]).float()
+        # color_task_embeddings = torch.stack([color_class]*self.num_views, dim=0)  # (Nv, 2)
+        # results['normal_task_embeddings'] = normal_task_embeddings
+        # results['color_task_embeddings'] = color_task_embeddings
+        
+        # splatter task embeddings
+        splatter_class_all = torch.eye(5).float()
+        for i, key in enumerate(gt_attr_keys):
+            results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*self.num_views, dim=0)
+
+        
 
         results['scene_name'] = scene_name #uid.split('/')[-1]
       
