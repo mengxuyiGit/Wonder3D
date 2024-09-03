@@ -31,6 +31,7 @@ from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from einops import rearrange, repeat
+from ipdb import set_trace as st
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -307,7 +308,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
                 torch.sin(camera_embedding),
                 torch.cos(camera_embedding)
             ], dim=-1)
-            print("camera_embedding (prepare_camera_embedding):", camera_embedding.shape)
+            # print("camera_embedding (prepare_camera_embedding):", camera_embedding.shape)
             assert self.unet.config.class_embed_type == 'projection'
             assert self.unet.config.projection_class_embeddings_input_dim == 6 or self.unet.config.projection_class_embeddings_input_dim == 10 or self.unet.config.projection_class_embeddings_input_dim == 16
         else:
@@ -325,21 +326,57 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         
         return camera_embedding
 
-    def reshape_to_cd_input(self, input):
+    # def reshape_to_cd_input(self, input):
+    #     # reshape input for cross-domain attention
+    #     input_norm_uc, input_rgb_uc, input_norm_cond, input_rgb_cond = torch.chunk(
+    #         input, dim=0, chunks=4)
+    #     input = torch.cat(
+    #         [input_norm_uc, input_norm_cond, input_rgb_uc, input_rgb_cond], dim=0)
+    #     return input
+
+    # def reshape_to_cfg_output(self, output):
+    #     # reshape input for cfg
+    #     output_norm_uc, output_norm_cond, output_rgb_uc, output_rgb_cond = torch.chunk(
+    #         output, dim=0, chunks=4)
+    #     output = torch.cat(
+    #         [output_norm_uc, output_rgb_uc, output_norm_cond, output_rgb_cond],
+    #         dim=0)
+    #     return output
+    
+    def reshape_to_cd_input(self, input, num_tasks=5):
         # reshape input for cross-domain attention
-        input_norm_uc, input_rgb_uc, input_norm_cond, input_rgb_cond = torch.chunk(
-            input, dim=0, chunks=4)
-        input = torch.cat(
-            [input_norm_uc, input_norm_cond, input_rgb_uc, input_rgb_cond], dim=0)
+        # input_norm_uc, input_rgb_uc, input_norm_cond, input_rgb_cond 
+        domains_uc_cond = torch.chunk(
+            input, dim=0, chunks=num_tasks*2)
+        domains_uc, domains_cond = domains_uc_cond[:num_tasks], domains_uc_cond[num_tasks:]
+        domains_joint_list = []
+        for _uc, _cond in zip(domains_uc, domains_cond):
+            domains_joint_list += [_uc, _cond]
+            
+        # input = torch.cat(
+        #     [input_norm_uc, input_norm_cond, input_rgb_uc, input_rgb_cond], dim=0)
+        input = torch.cat(domains_joint_list, dim=0)
+        print(f"num tasks={num_tasks} in reshape to cd input")
+        # st()
         return input
 
-    def reshape_to_cfg_output(self, output):
+    def reshape_to_cfg_output(self, output, num_tasks=5):
         # reshape input for cfg
-        output_norm_uc, output_norm_cond, output_rgb_uc, output_rgb_cond = torch.chunk(
-            output, dim=0, chunks=4)
-        output = torch.cat(
-            [output_norm_uc, output_rgb_uc, output_norm_cond, output_rgb_cond],
-            dim=0)
+        # output_norm_uc, output_norm_cond, output_rgb_uc, output_rgb_cond
+        outputs_joint_list = torch.chunk(
+            output, dim=0, chunks=num_tasks*2)
+        domains_uc, domains_cond = [], []
+        for _uc, _cond in zip(outputs_joint_list[::2], outputs_joint_list[1::2]):
+            domains_uc.append(_uc)
+            domains_cond.append(_cond)
+        
+        # output = torch.cat(
+        #     [output_norm_uc, output_rgb_uc, output_norm_cond, output_rgb_cond],
+        #     dim=0)
+        print(f"num tasks={num_tasks} in reshape to cfg ouput")
+        
+        output = torch.cat(domains_uc + domains_cond, dim=0)
+        # st()
         return output
 
     @torch.no_grad()
@@ -482,7 +519,9 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         else:
             camera_embedding = self.camera_embedding.to(dtype)
             camera_embedding = repeat(camera_embedding, "Nv Nce -> (B Nv) Nce", B=batch_size//len(camera_embedding))
+            from ipdb import set_trace as st; st()
         camera_embeddings = self.prepare_camera_embedding(camera_embedding, do_classifier_free_guidance=do_classifier_free_guidance, num_images_per_prompt=num_images_per_prompt)
+        print("camera_embedding (MVPipe __call__):", camera_embeddings.shape)
 
         # 4. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
