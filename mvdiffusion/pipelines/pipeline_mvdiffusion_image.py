@@ -78,7 +78,8 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         feature_extractor: CLIPImageProcessor,
         requires_safety_checker: bool = True,
         camera_embedding_type: str = 'e_de_da_sincos',
-        num_views: int = 6
+        num_views: int = 6,
+        num_tasks: int = 5,
     ):
         super().__init__()
 
@@ -133,6 +134,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
 
         self.camera_embedding_type: str = camera_embedding_type
         self.num_views: int = num_views
+        self.num_tasks: int = num_tasks
 
     
         if self.unet.config.projection_class_embeddings_input_dim == 16:
@@ -343,9 +345,10 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
     #         dim=0)
     #     return output
     
-    def reshape_to_cd_input(self, input, num_tasks=5):
+    def reshape_to_cd_input(self, input):
         # reshape input for cross-domain attention
         # input_norm_uc, input_rgb_uc, input_norm_cond, input_rgb_cond 
+        num_tasks = self.num_tasks
         domains_uc_cond = torch.chunk(
             input, dim=0, chunks=num_tasks*2)
         domains_uc, domains_cond = domains_uc_cond[:num_tasks], domains_uc_cond[num_tasks:]
@@ -357,11 +360,11 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         #     [input_norm_uc, input_norm_cond, input_rgb_uc, input_rgb_cond], dim=0)
         input = torch.cat(domains_joint_list, dim=0)
         print(f"num tasks={num_tasks} in reshape to cd input")
-        # st()
         return input
 
-    def reshape_to_cfg_output(self, output, num_tasks=5):
+    def reshape_to_cfg_output(self, output):
         # reshape input for cfg
+        num_tasks = self.num_tasks
         # output_norm_uc, output_norm_cond, output_rgb_uc, output_rgb_cond
         outputs_joint_list = torch.chunk(
             output, dim=0, chunks=num_tasks*2)
