@@ -50,7 +50,7 @@ validation_train_dataset:
 
 pred_type: 'mix'
 
-output_dir: 'outputs/overfit/wonder3D-mix-128-lara-splatter-lmdb'
+output_dir: 'outputs/overfit/wonder3D-mix-128-lara-splatter_pos_rgb'
 seed: 42
 train_batch_size: 16
 validation_batch_size: ${train_batch_size} # 16
@@ -96,6 +96,7 @@ scale_input_latents: true
 pipe_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
   num_views: 6
+  num_tasks: 2
 
 validation_guidance_scales: [1., 3.]
 pipe_validation_kwargs:
@@ -104,7 +105,7 @@ validation_grid_nrow: 12
 
 unet_from_pretrained_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
-  projection_class_embeddings_input_dim: 16  # modify: 10 for normal & color
+  projection_class_embeddings_input_dim: 10 # modify: 10 for normal & color
   num_views: 6
   sample_size: 16 # 32
   zero_init_conv_in: true
