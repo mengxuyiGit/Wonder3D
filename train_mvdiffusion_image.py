@@ -45,7 +45,8 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 # from mvdiffusion.data.lvis_dataset import ObjaverseDataset as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara import gobjverse as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
-from mvdiffusion.data.provider_lara_splatter_overfit import gobjverse as MVDiffusionDataset
+from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
+# from mvdiffusion.data.provider_lara_splatter_overfit import gobjverse as MVDiffusionDataset
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
