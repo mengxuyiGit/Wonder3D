@@ -181,7 +181,7 @@ class gobjverse(torch.utils.data.Dataset):
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
         self.n_group = 4 # cfg.n_group
         
-        self.load_normal = False
+        self.load_normal = False # TODO: control this by config file, already has this flag
         
         self.read_first_view_only = read_first_view_only
         if read_first_view_only:
@@ -421,68 +421,87 @@ class gobjverse(torch.utils.data.Dataset):
         
         view_id = self.fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
         # print("view_id", len(view_id))
-        assert len(view_id) == self.num_views
+        assert len(view_id) == self.num_views or self.read_first_view_only
 
+        chunk_idx = hash_key_to_chunk(scene_name, self.num_lmdb_chunks) if self.lmdb_6view_base is not None else None
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name)
         
         results = {}
     
         images = torch.from_numpy(tar_img).permute(0,3,1,2) # [V, C, H, W]
-        normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
-        # depths = tar_img #[TODO: lara processed data has no depth]
-        masks = torch.from_numpy(tar_msks).to(images.dtype) #.unsqueeze(1) # [V, C, H, W]
-        cam_poses = torch.from_numpy(tar_c2ws)
         
+        ### no need to read the below infos
+        if False:
+            normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
+            # depths = tar_img #[TODO: lara processed data has no depth]
+            masks = torch.from_numpy(tar_msks).to(images.dtype) #.unsqueeze(1) # [V, C, H, W]
+            cam_poses = torch.from_numpy(tar_c2ws)
+            
 
-        # normalized camera feats as in paper (transform the first pose to a fixed position)
-        radius = torch.norm(cam_poses[0, :3, 3])
-        cam_poses[:, :3, 3] *= self.cam_radius / radius
-        transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
-        cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
-        
+            # normalized camera feats as in paper (transform the first pose to a fixed position)
+            radius = torch.norm(cam_poses[0, :3, 3])
+            cam_poses[:, :3, 3] *= self.cam_radius / radius
+            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
+            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+            # opengl to colmap camera for gaussian renderer
+            cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+            results['cam_poses'] = cam_poses # [V, 4, 4]
 
-        # rotate normal!
-        normal_final = normals
-        V, _, H, W = normal_final.shape # [1, h, w, 3]
-        normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
-        # normalize normal
-        normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
-        # AFTER rotating normal, map normal to range [0,1]
-        normal_final = normal_final / 2.0 + 0.5
-        # make the bg of normal map to img bg
-        # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
-        normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
+            
+
+            # rotate normal!
+            normal_final = normals
+            V, _, H, W = normal_final.shape # [1, h, w, 3]
+            normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
+            # normalize normal
+            normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
+            # AFTER rotating normal, map normal to range [0,1]
+            normal_final = normal_final / 2.0 + 0.5
+            # make the bg of normal map to img bg
+            # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
+            normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
         
     
-        # resize render ground-truth images, range still in [0, 1]
-        results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
-        results['imgs_in'] = results['imgs_out'][0].unsqueeze(0).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+        # # resize render ground-truth images, range still in [0, 1]
+        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
 
         rendering_loss_2dgs = False
         if rendering_loss_2dgs:
             results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
             results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+            # results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
         else:
-            del results['imgs_out']
+            # del results['imgs_out']
+            assert results.get('imgs_out') is None
         
         # read splatter attriubtes
         splatter_uid = self.lmdbFiles.get_data(scene_name)
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid) # [-1,1]
+        assert len(splatter_original_Channel_mvimage_dict.keys()) == 5
         for key, value in splatter_original_Channel_mvimage_dict.items():
             results[f"{key}_out"] = einops.rearrange(value, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
             # print(key, results[f"{key}_out"].shape)
             # assert results[f"{key}_out"].shape[-2:] == self.img_wh
         
-        
-        # opengl to colmap camera for gaussian renderer
-        cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-        results['cam_poses'] = cam_poses # [V, 4, 4]
-
-        elevations = torch.as_tensor(tar_eles).float()
-        azimuths = torch.as_tensor(tar_azis).float()
+        if self.read_first_view_only:
+            # [  0.,  90., 180., 270.,  30., 330.])
+            assert len(tar_eles) == 1
+            elevations = torch.tensor([tar_eles[0]] * 6)
+            azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.])
+        else:
+            elevations = torch.as_tensor(tar_eles).float()
+            azimuths = torch.as_tensor(tar_azis).float() 
+ 
         elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # fixed only use 4 views to train
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
         
+        # print("elevations_cond", elevations_cond)
+        # print("elevations", elevations)
+        # print("azimuths", azimuths)
+        # # print("view_id", view_id)
+        # # tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, [0], scene_name)
+        # # print("elevations", elevations  - tar_eles)
+        # # print("azimuths", azimuths - tar_azis)
         
         results.update({
             'elevations_cond': torch.deg2rad(elevations_cond),
@@ -492,7 +511,7 @@ class gobjverse(torch.utils.data.Dataset):
             'elevations_deg': elevations,
             'azimuths_deg': azimuths,
         })
-        
+
         camera_embeddings = torch.stack([elevations_cond, elevations-elevations_cond, azimuths-azimuths_cond], dim=-1) # (Nv, 3)
         results['camera_embeddings'] = camera_embeddings
 
@@ -602,7 +621,7 @@ class gobjverse(torch.utils.data.Dataset):
         if lmdb_chunk is not None:
             key =  f'{scene_name}_image_{view_idx}'
             img = self.lmdbFiles_6view_list[lmdb_chunk].get_data(key)
-            # print(f"getting image from lmdb chunk {lmdb_chunk}", key)
+            print(f"getting image from lmdb chunk {lmdb_chunk}", key)
         else:
             # read from h5
             img = np.array(scene[f'image_{view_idx}'])
