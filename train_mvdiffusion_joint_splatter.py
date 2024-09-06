@@ -42,7 +42,8 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 
 # from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara_splatter_no_h5 import gobjverse as MVDiffusionDataset
-from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
+# from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
+from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
 from utils.splatter_utils import gt_attr_keys
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
@@ -55,6 +56,17 @@ from ipdb import set_trace as st
 
 logger = get_logger(__name__, log_level="INFO")
 
+def rearrange_images(out, num_domains=5):
+    shape = out.shape
+    out_chunks = torch.chunk(out, num_domains, dim=0)
+    out = []
+    for ii in range(shape[0]//num_domains): 
+        # out.append(out0[ii])
+        # out.append(out1[ii])
+        for _out_i in out_chunks:
+            out.append(_out_i[ii])  
+    out = torch.stack(out, dim=0)
+    return out
 
 @dataclass
 class TrainingConfig:
@@ -205,6 +217,12 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                 images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out)
     images_cond_all = torch.cat(images_cond, dim=0)
     images_gt_all = torch.cat(images_gt, dim=0)
+
+    # print("images_cond_all shape: ", images_cond_all.shape, "images_gt_all shape: ", images_gt_all.shape)
+    # images_gt_all = rearrange_images(images_gt_all)
+    # print("images_cond_all shape: ", images_cond_all.shape, "images_gt_all shape: ", images_gt_all.shape)
+    # st()
+         
     images_pred_all = {}
     for k, v in images_pred.items():
         images_pred_all[k] = torch.cat(v, dim=0)
@@ -815,4 +833,4 @@ if __name__ == '__main__':
     schema = OmegaConf.structured(TrainingConfig)
     cfg = OmegaConf.load(args.config)
     cfg = OmegaConf.merge(schema, cfg)
-    main(cfg)
+    ma

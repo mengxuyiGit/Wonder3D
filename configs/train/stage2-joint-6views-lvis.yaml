@@ -1,9 +1,6 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 # modify the unet path; use the stage 1 checkpoint
-# pretrained_unet_path: 'outputs/wonder3D-mix/checkpoint-30000/'
-pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/wonder3D-mix-128-lara-4gpus/unet-3000'
-# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/debug/wonder3D-mix-128-lara/checkpoint/unet_ema'
-# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/wonder3D-joint-128-lara/unet-2000/unet'
+pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus/checkpoint'
 revision: null
 train_dataset:
   root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
@@ -18,6 +15,10 @@ train_dataset:
   num_validation_samples: 4
   read_normal: true
   read_color: true
+  overfit: false
+  debug: false
+  read_first_view_only: true 
+  lmdb_6view_base: '/mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database'
 validation_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -25,12 +26,15 @@ validation_dataset:
   num_views: 6
   groups_num: 1
   bg_color: 'white'
-  # img_wh: [256, 256]
   img_wh: ${train_dataset.img_wh}
   validation: true
   num_validation_samples: 4
   read_normal: true
   read_color: true
+  overfit: ${train_dataset.overfit}
+  debug: ${train_dataset.debug}
+  read_first_view_only: ${train_dataset.read_first_view_only}
+  lmdb_6view_base: ${train_dataset.lmdb_6view_base}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -38,23 +42,25 @@ validation_train_dataset:
   num_views: 6
   groups_num: 1
   bg_color: 'three_choices'
-  # img_wh: [256, 256]
   img_wh: ${train_dataset.img_wh}
   validation: false
   num_validation_samples: 4 # 32
   num_samples: 32
   read_normal: true
   read_color: true
+  overfit: ${train_dataset.overfit}
+  debug: ${train_dataset.debug}
+  read_first_view_only: ${train_dataset.read_first_view_only}
+  lmdb_6view_base: ${train_dataset.lmdb_6view_base}
 
-# output_dir: 'outputs/debug'
-# output_dir: 'outputs/debug/wonder3D-joint'
-output_dir: 'outputs/wonder3D-joint-128-lara-fixed_cfg_inference'
+output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-BSZ4_acc1_1gpu-DEBUG'
+
 seed: 42
-train_batch_size: 16 # original paper uses 32
-validation_batch_size: 16
+train_batch_size: 4 # original paper uses 32
+validation_batch_size: 16 # ${train_batch_size}
 validation_train_batch_size: 16
 max_train_steps: 20000
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 1 # 2
 gradient_checkpointing: true
 learning_rate: 5.e-5
 scale_lr: false
@@ -76,7 +82,7 @@ logging_dir: logs
 mixed_precision: "fp16"
 report_to: 'tensorboard'
 local_rank: -1
-checkpointing_steps: 1000
+checkpointing_steps: 200
 checkpoints_total_limit: null
 last_global_step: 5000
 
@@ -100,11 +106,11 @@ pipe_kwargs:
 validation_guidance_scales: [1., 3.]
 pipe_validation_kwargs:
   eta: 1.0
-validation_grid_nrow: 12
+validation_grid_nrow: 10
 
 unet_from_pretrained_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
-  projection_class_embeddings_input_dim: 10  # modify
+  projection_class_embeddings_input_dim: 16  # modify: 10 for 2 domains
   num_views: 6
   sample_size: 16 # when im_hw=128
   zero_init_conv_in: false
