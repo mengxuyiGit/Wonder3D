@@ -12,7 +12,7 @@ import einops
 from ipdb import set_trace as st
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
-from typing import Literal, Tuple, Optional, Any
+from typing import Literal, Tuple, Optional, Any, Dict
 
 import lmdb
 import pickle
@@ -31,6 +31,15 @@ def fov_to_ixt(fov, reso):
     ixt[[0,1],[0,1]] = focal
     return ixt
 
+import hashlib
+def hash_key_to_chunk(key, num_chunks):
+    """Hash the key to determine the chunk it belongs to."""
+    # Create a hash of the key
+    hash_value = int(hashlib.md5(key.encode('utf-8')).hexdigest(), 16)
+    
+    # Map the hash to one of the chunks using modulus
+    chunk_idx = hash_value % num_chunks
+    return chunk_idx
 
 class LmdbWrapper():
     def __init__(self, path) -> None:
@@ -76,7 +85,9 @@ class gobjverse(torch.utils.data.Dataset):
         subscene_tag: int = 3,
         backup_scene: str = "9438abf986c7453a9f4df7c34aa2e65b",
         overfit: bool = False,
+        debug: bool = False,
         read_first_view_only: bool = False,
+        lmdb_6view_base: str = None,
         ):
         super(gobjverse, self).__init__()
 
@@ -90,6 +101,14 @@ class gobjverse(torch.utils.data.Dataset):
         self.data_root = root_dir
         self.cam_radius = 1.5
         
+        # LMDB
+        self.lmdb_6view_base = lmdb_6view_base
+        self.num_lmdb_chunks = len(os.listdir(
+            os.path.dirname(self.lmdb_6view_base)
+            )) if self.lmdb_6view_base is not None else 0
+        print("lmdb_6view_base", self.lmdb_6view_base, "num_lmdb_chunks", self.num_lmdb_chunks)
+        
+        
         self.training =  self.training = not validation
         self.split = 'train' if self.training else 'test'
         self.img_size = np.array([512]*2)
@@ -100,6 +119,10 @@ class gobjverse(torch.utils.data.Dataset):
         scenes_name = np.array(sorted(self.metas.keys())) # [:1000]
         
         
+        # debug = False
+        if debug:
+            scenes_name = scenes_name[:1000]
+        
         if 'splits' in scenes_name:
             self.scenes_name = self.metas['splits']['test'][:].astype(str) #self.metas['splits'][self.split]
         else:
@@ -107,11 +130,6 @@ class gobjverse(torch.utils.data.Dataset):
             i_test = np.arange(len(scenes_name))[::10][:10] # only test 10 scenes
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
-            
-            # debug = True
-            # if debug:
-            #     i_test = i_test[:2]
-            #     i_train = i_train[:100]
             
             if overfit:
                 i_test = [90]
@@ -124,7 +142,6 @@ class gobjverse(torch.utils.data.Dataset):
             
         # splatter mv data
         self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
-     
         
         ##################### LMDB CREATION ##################################################
         coverage = "overfit" if overfit else "whole"
@@ -164,7 +181,7 @@ class gobjverse(torch.utils.data.Dataset):
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
         self.n_group = 4 # cfg.n_group
         
-        self.load_normal = True
+        self.load_normal = False
         
         self.read_first_view_only = read_first_view_only
         if read_first_view_only:
@@ -174,21 +191,18 @@ class gobjverse(torch.utils.data.Dataset):
     
     def worker_init_open_db(self):
         np.random.seed(torch.initial_seed() % 2**32)
-        # self.open_lmdb_database()
+        ## scene_names
         self.lmdbFiles = LmdbWrapper(self.lmdb_path)
 
-        # ## 6 view
-        # self.num_lmdbs = 100
-        # lmdb_6view_base = '/mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_6views_1k_scenes/lmdb_database'
-        # lmdb_6view_paths = [f"{lmdb_6view_base}_{i}.lmdb" for i in range(self.num_lmdbs)]
-        # print("lmdb_6view_paths", lmdb_6view_paths)
+        ## actual rgb, normal, c2w, fov
+        if self.lmdb_6view_base is not None:
+            lmdb_6view_paths = [f"{self.lmdb_6view_base}_{i}.lmdb" for i in range(self.num_lmdb_chunks)]
 
-        # self.lmdbFiles_6view_list = []
-        # for _ldmb_path in lmdb_6view_paths:
-        #     if not os.path.exists(_ldmb_path):
-        #         print(f"LMDB database {_ldmb_path} does not exist.")
-            
-        #     self.lmdbFiles_6view_list.append(LmdbWrapper(self.lmdb_path_6view))
+            self.lmdbFiles_6view_list = []
+            for _ldmb_path in lmdb_6view_paths:
+                if not os.path.exists(_ldmb_path):
+                    print(f"LMDB database {_ldmb_path} does not exist.")
+                self.lmdbFiles_6view_list.append(LmdbWrapper(_ldmb_path))
     
     def create_lmdb_database(self):
         print(f"Creating LMDB database: {self.lmdb_path}...")
@@ -246,10 +260,12 @@ class gobjverse(torch.utils.data.Dataset):
        
     
     def __getitem_mix__(self, index):
-    
+
+       
         scene_name = self.scenes_name[index]
-        # print("scene_name", scene_name)
         scene_info = self.metas[scene_name]
+
+        results = {}
 
         # if self.split=='train' and self.n_group > 1:
         #     # print("111")
@@ -267,9 +283,10 @@ class gobjverse(torch.utils.data.Dataset):
         view_id = self.fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
         assert len(view_id) == self.num_views or self.read_first_view_only
 
-        tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name)
         
-        results = {}
+        chunk_idx = hash_key_to_chunk(scene_name, self.num_lmdb_chunks) if self.lmdb_6view_base is not None else None
+
+        tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name, lmdb_chunk=chunk_idx)
     
         images = torch.from_numpy(tar_img).permute(0,3,1,2) # [V, C, H, W]
         # normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
@@ -511,7 +528,7 @@ class gobjverse(torch.utils.data.Dataset):
             return self.backup_data
 
     
-    def read_views(self, scene, src_views, scene_name):
+    def read_views(self, scene, src_views, scene_name, lmdb_chunk=None):
         src_ids = src_views
         bg_colors = []
         ixts, exts, w2cs, imgs, msks, normals = [], [], [], [], [], []
@@ -526,7 +543,7 @@ class gobjverse(torch.utils.data.Dataset):
 
             bg_colors.append(bg_color)
             
-            img, normal, mask = self.read_image(scene, idx, bg_color, scene_name)
+            img, normal, mask = self.read_image(scene, idx, bg_color, scene_name, lmdb_chunk)
             imgs.append(img)
             ixt, ext, w2c, ele, azi = self.read_cam(scene, idx)
             ixts.append(ixt)
@@ -579,9 +596,16 @@ class gobjverse(torch.utils.data.Dataset):
         
         return ixt, c2w, w2c, ele, azi
 
-    def read_image(self, scene, view_idx, bg_color, scene_name):
+    def read_image(self, scene, view_idx, bg_color, scene_name, lmdb_chunk=None):
         
-        img = np.array(scene[f'image_{view_idx}'])
+        # read from lmdb_chunk
+        if lmdb_chunk is not None:
+            key =  f'{scene_name}_image_{view_idx}'
+            img = self.lmdbFiles_6view_list[lmdb_chunk].get_data(key)
+            # print(f"getting image from lmdb chunk {lmdb_chunk}", key)
+        else:
+            # read from h5
+            img = np.array(scene[f'image_{view_idx}'])
 
         mask = (img[...,-1] > 0).astype('uint8')
         img = img.astype(np.float32) / 255.

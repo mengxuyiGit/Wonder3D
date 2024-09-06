@@ -14,6 +14,10 @@ train_dataset:
   read_mask: false
   overfit: false
   read_first_view_only: true # for efficiency, when there is no rednering loss required
+  # lmdb:
+  # lmdb_6view_base: null
+  lmdb_6view_base: '/mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database'
+
 validation_dataset:
   root_dir: ${train_dataset.root_dir}
   object_list: ./data_lists/single_obj.json
@@ -28,6 +32,8 @@ validation_dataset:
   read_mask: false
   overfit: ${train_dataset.overfit}
   read_first_view_only: ${train_dataset.read_first_view_only}
+  # lmdb: ${train_dataset.lmdb}
+  lmdb_6view_base: ${train_dataset.lmdb_6view_base}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}
   object_list: ./data_lists/single_obj.json
@@ -43,9 +49,11 @@ validation_train_dataset:
   read_mask: false
   overfit: ${train_dataset.overfit}
   read_first_view_only: ${train_dataset.read_first_view_only}
-output_dir: outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus
+  # lmdb: ${train_dataset.lmdb}
+  lmdb_6view_base: ${train_dataset.lmdb_6view_base}
+output_dir: outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus-WHOLE
 seed: 42
-train_batch_size: 32
+train_batch_size: 16
 validation_batch_size: ${train_batch_size}
 validation_train_batch_size: 16
 max_train_steps: 30000
@@ -71,7 +79,7 @@ vis_dir: vis
 mixed_precision: fp16
 report_to: tensorboard
 local_rank: 0
-checkpointing_steps: 200
+checkpointing_steps: 500
 checkpoints_total_limit: 20
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
