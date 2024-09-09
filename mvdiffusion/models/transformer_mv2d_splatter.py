@@ -642,9 +642,9 @@ class CustomJointAttention(Attention):
     def set_use_memory_efficient_attention_xformers(
         self, use_memory_efficient_attention_xformers: bool, *args, **kwargs
     ):
-        processor = XFormersJointAttnProcessor()
+        # processor = XFormersJointAttnProcessor()
+        processor = XFormersJointAttnProcessorROPE()
         self.set_processor(processor)
-        # st()
         # print("using xformers attention processor")
 
 class MVAttnProcessor:
@@ -823,6 +823,140 @@ class XFormersMVAttnProcessor:
 
 
 
+from .embeddings import *
+# get_1d_rotary_pos_embed, apply_rotary_emb, RotaryPositionalEmbedding
+class XFormersJointAttnProcessorROPE:
+    r"""
+    Default processor for performing attention-related computations.
+    """
+
+    def __init__(self, theta=10000, axes_dim=[8, 16, 16]):
+
+        self.theta = theta
+        self.axes_dim = axes_dim
+        
+        self.pe_embedder = EmbedND(dim=40, theta=theta)
+
+    def __call__(
+        self,
+        attn: Attention,
+        hidden_states,
+        encoder_hidden_states=None,
+        attention_mask=None,
+        temb=None,
+        num_tasks=5
+    ):
+        
+        residual = hidden_states
+
+        if attn.spatial_norm is not None:
+            hidden_states = attn.spatial_norm(hidden_states, temb)
+
+        input_ndim = hidden_states.ndim
+
+        if input_ndim == 4:
+            batch_size, channel, height, width = hidden_states.shape
+            hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
+
+        batch_size, sequence_length, _ = (
+            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
+        )
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+
+        # from yuancheng; here attention_mask is None
+        if attention_mask is not None:
+            # expand our mask's singleton query_tokens dimension:
+            #   [batch*heads,            1, key_tokens] ->
+            #   [batch*heads, query_tokens, key_tokens]
+            # so that it can be added as a bias onto the attention scores that xformers computes:
+            #   [batch*heads, query_tokens, key_tokens]
+            # we do this explicitly because xformers doesn't broadcast the singleton dimension for us.
+            _, query_tokens, _ = hidden_states.shape
+            attention_mask = attention_mask.expand(-1, query_tokens, -1)
+
+        if attn.group_norm is not None:
+            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+
+        query = attn.to_q(hidden_states) # [(T, B, V), d, c]: batch dim = task * batch * views
+
+        if encoder_hidden_states is None:
+            encoder_hidden_states = hidden_states
+        elif attn.norm_cross:
+            encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
+
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+
+        assert num_tasks == 5  # only support two tasks now
+        # print("num_tasks in [XFomers]", num_tasks)
+
+        # ################# 2 tasks #################
+        # key_0, key_1 = torch.chunk(key, dim=0, chunks=2)  # keys shape (b t) d c
+        # # st()
+        # value_0, value_1 = torch.chunk(value, dim=0, chunks=2)
+        # key = torch.cat([key_0, key_1], dim=1)  # (b t) 2d c
+        # value = torch.cat([value_0, value_1], dim=1)  # (b t) 2d c
+        # key = torch.cat([key]*2, dim=0)   # ( 2 b t) 2d c
+        # value = torch.cat([value]*2, dim=0)  # (2 b t) 2d c
+        # # st()
+        # ################# 2 tasks [end] #################
+
+        # ################# 5 tasks #################
+        # key_0, key_1 = torch.chunk(key, dim=0, chunks=2)  # keys shape (b t) d c
+        # value_0, value_1 = torch.chunk(value, dim=0, chunks=2)
+        # key = torch.cat([key_0, key_1], dim=1)  # (b t) 2d c
+        # value = torch.cat([value_0, value_1], dim=1)  # (b t) 2d c
+        # key = torch.cat([key]*2, dim=0)   # ( 2 b t) 2d c
+        # value = torch.cat([value]*2, dim=0)  # (2 b t) 2d c
+        # # st()
+        
+        key_domains = torch.chunk(key, dim=0, chunks=num_tasks) # [(t b v) c] -> t * [(b v) c]
+        value_domains = torch.chunk(value, dim=0, chunks=num_tasks)
+        # st()
+        key = torch.cat(key_domains, dim=1) # t * [(b v), c] -> [(b v), (t, c)]
+        value = torch.cat(value_domains, dim=1)
+        # st()
+        key = torch.cat([key]*num_tasks, dim=0) # [(b v), (t, c)] -> [(t b v), (t, c)]
+        value = torch.cat([value]*num_tasks, dim=0)
+      
+        ################# 5 tasks [end] #################
+        query = attn.head_to_batch_dim(query).contiguous()
+        key = attn.head_to_batch_dim(key).contiguous()
+        value = attn.head_to_batch_dim(value).contiguous()
+
+        ##### positional encoding (ROPE) #####
+        if self.axes_dim:
+            ids_q = torch.arange(query.size(1), device=query.device).unsqueeze(0).unsqueeze(-1).repeat(1, 1, 3)
+            ids_k = torch.arange(key.size(1), device=query.device).unsqueeze(0).unsqueeze(-1).repeat(1, 1, 3)
+            
+            axes_dim = [dim*query.size(-1)//40 for dim in self.axes_dim]
+            # print('axes_dim', axes_dim)
+            pe_q = self.pe_embedder(ids_q, axes_dim=axes_dim)
+            pe_k = self.pe_embedder(ids_k, axes_dim=axes_dim)
+            
+            query = apply_rope(query.unsqueeze(1), pe_q).squeeze(1)
+            key = apply_rope(key.unsqueeze(1), pe_k).squeeze(1)
+
+        hidden_states = xformers.ops.memory_efficient_attention(query, key, value, attn_bias=attention_mask)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+
+        # linear proj
+        hidden_states = attn.to_out[0](hidden_states)
+        # dropout
+        hidden_states = attn.to_out[1](hidden_states)
+
+        if input_ndim == 4:
+            hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, channel, height, width)
+
+        if attn.residual_connection:
+            hidden_states = hidden_states + residual
+
+        hidden_states = hidden_states / attn.rescale_output_factor
+        
+        return hidden_states
+
+
+
 class XFormersJointAttnProcessor:
     r"""
     Default processor for performing attention-related computations.
@@ -879,6 +1013,7 @@ class XFormersJointAttnProcessor:
         value = attn.to_v(encoder_hidden_states)
 
         assert num_tasks == 5  # only support two tasks now
+        # print("num_tasks in [XFomers]", num_tasks)
 
         # ################# 2 tasks #################
         # key_0, key_1 = torch.chunk(key, dim=0, chunks=2)  # keys shape (b t) d c
@@ -909,7 +1044,7 @@ class XFormersJointAttnProcessor:
         key = torch.cat([key]*num_tasks, dim=0)
         value = torch.cat([value]*num_tasks, dim=0)
         # st()
-        
+
         ################# 5 tasks [end] #################
 
         
