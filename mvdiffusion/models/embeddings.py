@@ -5,7 +5,32 @@ import math
 from typing import List, Optional, Tuple, Union
 from ipdb import set_trace as st
 from torch import Tensor
-from einops import rearrange
+from einops import rearrange, repeat
+
+def get_rope_ids(target: Tensor, mode: str, num_domains: int = 5):
+    
+    bs, l, _ = target.shape
+    if mode == "query":
+        h = w = int(math.sqrt(l))
+    elif mode == "key":
+        h = w = int(math.sqrt(l//num_domains))
+    # print(mode, h, w)
+    
+    img_ids = torch.zeros(h, w, 3)
+    img_ids[..., 1] = img_ids[..., 1] + torch.arange(h)[:, None]
+    img_ids[..., 2] = img_ids[..., 2] + torch.arange(w)[None, :]
+    
+    # domain
+    img_ids = repeat(img_ids, "h w c -> d (h w) c", d=num_domains)
+    img_ids = img_ids.clone()  # Ensure no memory overlap
+    img_ids[..., 0] = img_ids[..., 0] + torch.arange(num_domains)[:, None]
+    
+    if mode == "query":
+        img_ids = torch.repeat_interleave(img_ids, bs//num_domains, dim=0)
+    elif mode == "key": # all domains are contained in the sequence
+        img_ids = repeat(img_ids, "d l c -> b (d l) c", b=bs)
+        
+    return img_ids.to(target.device)
 
 def rope(pos: Tensor, dim: int, theta: int):
 # -> Tensor:

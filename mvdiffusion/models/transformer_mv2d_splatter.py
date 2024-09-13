@@ -926,8 +926,9 @@ class XFormersJointAttnProcessorROPE:
 
         ##### positional encoding (ROPE) #####
         if self.axes_dim:
-            ids_q = torch.arange(query.size(1), device=query.device).unsqueeze(0).unsqueeze(-1).repeat(1, 1, 3)
-            ids_k = torch.arange(key.size(1), device=query.device).unsqueeze(0).unsqueeze(-1).repeat(1, 1, 3)
+            # print('using ROPE: ', query.size(), key.size())
+            ids_q = get_rope_ids(query, "query")
+            ids_k = get_rope_ids(key, "key")
             
             axes_dim = [dim*query.size(-1)//40 for dim in self.axes_dim]
             # print('axes_dim', axes_dim)

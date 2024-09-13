@@ -31,6 +31,25 @@ def fov_to_ixt(fov, reso):
     ixt[[0,1],[0,1]] = focal
     return ixt
 
+def get_proj_matrix(fovy, z_near=0.5, z_far=2.5):
+    # self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
+    # self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
+    # self.proj_matrix[0, 0] = 1 / self.tan_half_fov
+    # self.proj_matrix[1, 1] = 1 / self.tan_half_fov
+    # self.proj_matrix[2, 2] = (self.opt.zfar + self.opt.znear) / (self.opt.zfar - self.opt.znear)
+    # self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
+    # self.proj_matrix[2, 3] = 1
+    
+    # replace the above self. with none
+    tan_half_fov = np.tan(0.5 * fovy) # fovy = 0.69115037 already in radian
+    proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
+    proj_matrix[0, 0] = 1 / tan_half_fov
+    proj_matrix[1, 1] = 1 / tan_half_fov
+    proj_matrix[2, 2] = (z_far + z_near) / (z_far - z_near)
+    proj_matrix[3, 2] = - (z_far * z_near) / (z_far - z_near)
+    proj_matrix[2, 3] = 1
+    return proj_matrix
+
 import hashlib
 def hash_key_to_chunk(key, num_chunks):
     """Hash the key to determine the chunk it belongs to."""
@@ -134,7 +153,7 @@ class gobjverse(torch.utils.data.Dataset):
             if overfit:
                 i_test = [90]
                 i_train = i_test*1000
-                i_test = i_test*10
+                i_test = i_test*2
                 
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
             
@@ -429,12 +448,13 @@ class gobjverse(torch.utils.data.Dataset):
         results = {}
     
         images = torch.from_numpy(tar_img).permute(0,3,1,2) # [V, C, H, W]
+        # # resize render ground-truth images, range still in [0, 1]
+        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
         
         ### no need to read the below infos
-        if False:
-            normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
-            # depths = tar_img #[TODO: lara processed data has no depth]
-            masks = torch.from_numpy(tar_msks).to(images.dtype) #.unsqueeze(1) # [V, C, H, W]
+        rendering_loss_2dgs = False
+        if rendering_loss_2dgs:
+        
             cam_poses = torch.from_numpy(tar_c2ws)
             
 
@@ -448,35 +468,53 @@ class gobjverse(torch.utils.data.Dataset):
             results['cam_poses'] = cam_poses # [V, 4, 4]
 
             
+            results['fovy'] = 0.69115037 # TODO
+            # cameras needed by gaussian rasterizer
+            cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+            cam_view_proj = cam_view @ get_proj_matrix(results['fovy']) # [V, 4, 4]
+            results['cam_view'] = cam_view
+            results['cam_view_proj'] = cam_view_proj
+            print("cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
 
-            # rotate normal!
-            normal_final = normals
-            V, _, H, W = normal_final.shape # [1, h, w, 3]
-            normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
-            # normalize normal
-            normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
-            # AFTER rotating normal, map normal to range [0,1]
-            normal_final = normal_final / 2.0 + 0.5
-            # make the bg of normal map to img bg
-            # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
-            normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
-        
+            read_normal = False
+            if read_normal:
+                normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
+                # depths = tar_img #[TODO: lara processed data has no depth]
+                masks = torch.from_numpy(tar_msks).to(images.dtype) #.unsqueeze(1) # [V, C, H, W]
+
+                # rotate normal!
+                normal_final = normals
+                V, _, H, W = normal_final.shape # [1, h, w, 3]
+                normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
+                # normalize normal
+                normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
+                # AFTER rotating normal, map normal to range [0,1]
+                normal_final = normal_final / 2.0 + 0.5
+                # make the bg of normal map to img bg
+                # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
+                normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
+            
     
-        # # resize render ground-truth images, range still in [0, 1]
-        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+                results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
+                results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+            
+            results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
 
-        rendering_loss_2dgs = False
-        if rendering_loss_2dgs:
-            results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-            results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
-            # results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+            # print("mask", results['masks'].shape, "normals_out", results['normals_out'].shape, "imgs_out", results['imgs_out'].shape)
+            
+            
         else:
             # del results['imgs_out']
             assert results.get('imgs_out') is None
         
         # read splatter attriubtes
         splatter_uid = self.lmdbFiles.get_data(scene_name)
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid) # [-1,1]
+        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs) # [-1,1]
+
+        if rendering_loss_2dgs:
+            results['gaussians_gt'] = splatter_original_Channel_mvimage_dict['gaussians_gt']
+            del splatter_original_Channel_mvimage_dict['gaussians_gt']
+        
         assert len(splatter_original_Channel_mvimage_dict.keys()) == 5
         for key, value in splatter_original_Channel_mvimage_dict.items():
             results[f"{key}_out"] = einops.rearrange(value, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
@@ -528,7 +566,6 @@ class gobjverse(torch.utils.data.Dataset):
         for i, key in enumerate(gt_attr_keys):
             results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*self.num_views, dim=0)
 
-        
 
         results['scene_name'] = scene_name #uid.split('/')[-1]
       
@@ -610,7 +647,7 @@ class gobjverse(torch.utils.data.Dataset):
             
         w2c = np.linalg.inv(c2w)
         fov = np.array(scene[f'fov_{view_idx}'], dtype=np.float32)
-        ixt = fov_to_ixt(fov, self.img_size)
+        ixt = fov_to_ixt(fov, self.img_size) # TOOD: return fov directly
      
         
         return ixt, c2w, w2c, ele, azi
