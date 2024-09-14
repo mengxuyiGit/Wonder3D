@@ -44,7 +44,7 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 # from mvdiffusion.data.provider_lara_splatter_no_h5 import gobjverse as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
 from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
-from utils.splatter_utils import gt_attr_keys
+from utils.splatter_utils import gt_attr_keys, get_fused_gaussians
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
@@ -53,6 +53,7 @@ from einops import rearrange
 import time
 import pdb
 from ipdb import set_trace as st
+from core.gs import GaussianRenderer
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -132,6 +133,7 @@ class TrainingConfig:
     drop_type: str
 
     last_global_step: int
+    rendering_loss_2dgs: bool
 
 
 def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg: TrainingConfig, accelerator, weight_dtype, global_step, name, save_dir):
@@ -153,6 +155,12 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     else:
         generator = torch.Generator(device=accelerator.device).manual_seed(cfg.seed)
         
+    
+    rendering_loss_2dgs = cfg.rendering_loss_2dgs
+    if rendering_loss_2dgs:
+        gs = GaussianRenderer() # fill in necessar
+        print("Successfully inited GaussianRenderer")
+        gs_renderings = defaultdict(list)
         
     num_domains = 5
     
@@ -184,6 +192,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         camera_task_embeddings = rearrange(camera_task_embeddings, "B Nv Nce -> (B Nv) Nce")
 
         images_cond.append(imgs_in)
+        imgs_out = rearrange_images(imgs_out)
         images_gt.append(imgs_out)
         with torch.autocast("cuda"):
             # B*Nv images
@@ -211,21 +220,68 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     # out.append(out1[ii])
                     for _out_i in out_chunks:
                         out.append(_out_i[ii])  
-                out = torch.stack(out, dim=0)
+                out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
+                
+             
+                    
+
+                images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
                 
 
-                images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out)
+                ## render 2dgs
+                ## c2w, fov, gaussians
+                # render(self, gaussians, cam_view, cam_view_proj, cam_pos, fovy, bg_color=None, scale_modifier=1):
+                # for j, data in enumerate(batch):
+                if rendering_loss_2dgs:
+                    data = batch
+
+                    ## use GT gaussians
+                    # gaussians = data['gaussians_gt'].to(unet.device)
+                    
+                    # gaussians = data['gaussians_recon'].to(unet.device)
+                    # print("using V2 gaussians recond")
+                    
+                    from utils.splatter_utils import reconstruct_gaussians
+
+                    # splatter_data_no_batch = {k: rearrange(data[f"{k}_out"][0], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for k in gt_attr_keys}
+                    # print("gaussians recon from data v3 shape: ", gaussians.shape)
+                    
+                    splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", B=cfg.validation_batch_size, D=num_domains, V=cfg.num_views)
+                    splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                    
+                    for k, v in splatter_data_no_batch.items():
+                        print(k, v.shape)
+                    gaussians = reconstruct_gaussians(splatter_data_no_batch)
+                    gaussians = gaussians.to(unet.device)[None]
+                    assert  gaussians.shape == data["gaussians_gt"].shape
+                    print("gaussians recon from BVD out v5: ", gaussians.shape)
+                   
+                    # splatters_bdv = rearrange(out, "(B D V) C H W -> B D V C H W", B=cfg.validation_batch_size, D=num_domains, V=cfg.num_views)
+                    # gaussians = get_fused_gaussians(splatters_bdv).to(unet.device)
+
+                    gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
+                    for k, v in gs_results.items():
+                        v = rearrange(v, "B V C H W -> (B V) C H W")
+                        gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
+                        # print("gs_renderings: ", k, v.shape)
+                
+                
     images_cond_all = torch.cat(images_cond, dim=0)
     images_gt_all = torch.cat(images_gt, dim=0)
-
-    # print("images_cond_all shape: ", images_cond_all.shape, "images_gt_all shape: ", images_gt_all.shape)
-    # images_gt_all = rearrange_images(images_gt_all)
-    # print("images_cond_all shape: ", images_cond_all.shape, "images_gt_all shape: ", images_gt_all.shape)
-    # st()
          
     images_pred_all = {}
     for k, v in images_pred.items():
         images_pred_all[k] = torch.cat(v, dim=0)
+    
+    if rendering_loss_2dgs:
+        gs_pred_all = {}
+        for k, v in gs_renderings.items():
+            gs_pred_all[k] = torch.cat(v, dim=0)
+    
+    for k, v in images_pred_all.items():
+        print("images_pred_all shape: ", k, v.shape)    
+    for k, v in gs_pred_all.items():
+        print("gs_pred_all shape: ", k, v.shape)
     
     nrow = cfg.validation_grid_nrow
     ncol = images_cond_all.shape[0] // nrow
@@ -238,6 +294,20 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     save_image(images_gt_grid, os.path.join(save_dir, f"{global_step}-{name}-gt.jpg"))
     for k, v in images_pred_grid.items():
         save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
+    
+    if rendering_loss_2dgs:
+         # to do 
+        #   1. rotate normals
+        #   2. save gt normals
+        gs_pred_grid = {}
+        for k, v in gs_pred_all.items():
+            gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
+        for k, v in gs_pred_grid.items():
+            print("gs_pred_grid: ", k, v.shape)
+            save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
+        
+        st()
+
     torch.cuda.empty_cache()
 
 
@@ -288,6 +358,8 @@ def main(
 
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="scheduler")
+    # print("prediction type:", noise_scheduler.config.prediction_type) -> epislon
+    
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="image_encoder", revision=cfg.revision)
     feature_extractor = CLIPImageProcessor.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="feature_extractor", revision=cfg.revision)
     vae = AutoencoderKL.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="vae", revision=cfg.revision)
@@ -532,9 +604,27 @@ def main(
             )
             cfg.resume_from_checkpoint = None
         else:
+            # # Step 1: Save a copy of the weights before loading the state
+            # unet_weights_before = {name: param.clone() for name, param in unet.named_parameters()}
+
+            # Step 2: Load the state
             accelerator.print(f"Resuming from checkpoint {path}")
             accelerator.load_state(os.path.join(cfg.output_dir, path))
-            # global_step = int(path.split("-")[1])
+            
+            # # Step 3: Compare the weights after loading the state
+            # changed_weights = []
+            # for name, param in vae.named_parameters():
+            #     if not torch.equal(unet_weights_before[name], param):
+            #         changed_weights.append(name)
+
+            # # Step 4: Print the results
+            # if changed_weights:
+            #     print(f"The following weights have changed after loading the checkpoint: {changed_weights}")
+            # else:
+            #     print("No weights have changed after loading the checkpoint.")
+            # ##### finished check unet weights #####
+            # st()
+                
             global_step = cfg.last_global_step
 
             resume_global_step = global_step * cfg.gradient_accumulation_steps
@@ -833,4 +923,4 @@ if __name__ == '__main__':
     schema = OmegaConf.structured(TrainingConfig)
     cfg = OmegaConf.load(args.config)
     cfg = OmegaConf.merge(schema, cfg)
-    ma
+    main(cfg)
