@@ -73,6 +73,7 @@ def rearrange_images(out, num_domains=5):
 class TrainingConfig:
     pretrained_model_name_or_path: str
     pretrained_unet_path: Optional[str]
+    pretrained_decoder_path: Optional[str]
     revision: Optional[str]
     train_dataset: Dict
     validation_dataset: Dict
@@ -363,6 +364,35 @@ def main(
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="image_encoder", revision=cfg.revision)
     feature_extractor = CLIPImageProcessor.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="feature_extractor", revision=cfg.revision)
     vae = AutoencoderKL.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="vae", revision=cfg.revision)
+    # load finetuned decoder
+    if cfg.pretrained_decoder_path is not None:
+        # vae = AutoencoderKL.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="decoder", revision=cfg.revision)
+        # we allow resume from both decoder and unet
+        from safetensors.torch import load_file 
+        print(f"Resume from decoder ckpt: {cfg.pretrained_decoder_path}")
+        if cfg.pretrained_decoder_path.endswith('safetensors'):
+            ckpt = load_file(cfg.pretrained_decoder_path, device='cpu')
+        else:
+            ckpt = torch.load(cfg.pretrained_decoder_path, map_location='cpu')
+        
+        # Prepare a set of parpameters that requires_grad=True in decoder
+        trainable_decoder_params = set(f"decoder.{name}" for name, para in vae.decoder.named_parameters())
+        # checked: this set is equal to check with model.vae.decoder.named_parameters(), whether dupplicate names
+        
+        state_dict = vae.state_dict()
+        for k in sorted(trainable_decoder_params):
+            v = ckpt[f"vae.{k}"]
+            if k in state_dict and state_dict[k].shape == v.shape:
+                print(f"Copying {k}")
+                state_dict[k].copy_(v)
+            else:
+                if k not in state_dict:
+                    accelerator.print(f'[WARN] Parameter {k} not found in model.')
+                else:
+                    accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+        torch.cuda.empty_cache()
+    
+    
     if cfg.pretrained_unet_path is None:
         unet = UNetMV2DConditionModel.from_pretrained_2d(cfg.pretrained_model_name_or_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
     else:
