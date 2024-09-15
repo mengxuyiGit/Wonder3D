@@ -663,7 +663,8 @@ def main(
     # Potentially load in the weights and states from a previous save
     if cfg.resume_from_checkpoint:
         if cfg.resume_from_checkpoint != "latest":
-            path = os.path.basename(cfg.resume_from_checkpoint)
+            # path = os.path.basename(cfg.resume_from_checkpoint)
+            path = cfg.resume_from_checkpoint
         else:
             # Get the most recent checkpoint
             if os.path.exists(os.path.join(cfg.output_dir, "checkpoint")):
@@ -673,6 +674,8 @@ def main(
                 dirs = [d for d in dirs if d.startswith("checkpoint")]
                 dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
                 path = dirs[-1] if len(dirs) > 0 else None
+            
+            path = os.path.join(cfg.output_dir, path) if path is not None else None
 
         if path is None:
             accelerator.print(
@@ -685,7 +688,8 @@ def main(
 
             # Step 2: Load the state
             accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(cfg.output_dir, path))
+            # accelerator.load_state(os.path.join(cfg.output_dir, path))
+            accelerator.load_state(path)
             
             # # Step 3: Compare the weights after loading the state
             # changed_weights = []
@@ -789,7 +793,6 @@ def main(
                     timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // (cfg.num_views * num_domains),), device=latents.device).repeat_interleave(cfg.num_views).repeat(num_domains)
                 else: # original wonder3d: different timesteps for different domains
                     timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
-                st()
                 timesteps = timesteps.long()                
 
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
