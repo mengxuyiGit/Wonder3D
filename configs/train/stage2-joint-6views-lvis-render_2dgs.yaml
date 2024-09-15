@@ -63,7 +63,7 @@ validation_train_dataset:
 
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-BSZ4_acc1_1gpu-DEBUG-2DGS-OVERFIT'
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ8_acc1_gpu2'
-output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-SYNC_DOMAIN_TIME-BSZ16_acc1_gpu4-all_trainable' # todo: add checkpoint folders
+output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable' # todo: add checkpoint folders
 # output_dir:  'outputs/debug/BSZ2_acc1-all_trainable-OVERFIT-DBBUG_zeroSNR'
 
 seed: 42
@@ -137,6 +137,6 @@ unet_from_pretrained_kwargs:
 
 num_views: 6
 camera_embedding_type: 'e_de_da_sincos'
-zero_terminal_snr: false
-sync_domain_timesteps: true
+zero_terminal_snr: true
+sync_domain_timesteps: false
 

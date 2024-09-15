@@ -400,7 +400,6 @@ def main(
         noise_scheduler = DDPMScheduler.from_config(noise_scheduler.config,  timestep_spacing="trailing") # zero terminal SNR    
         noise_scheduler.betas = rescale_zero_terminal_snr(noise_scheduler.betas)
         print("zero terminal SNR")
-        st()
 
     
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="image_encoder", revision=cfg.revision)
