@@ -165,9 +165,9 @@ def reconstruct_gaussians(splatter_3Channel_image, key_suffix=None):
     recon_list = []
     for k in ordered_attr_list:
         k = k + (key_suffix if key_suffix is not None else "")
-        print(k, splatter_3Channel_image[k].shape)
+        # print(k, splatter_3Channel_image[k].shape)
         recon = denormalize_and_activate(k, splatter_3Channel_image[k][None])
-        print("[recon]", k, recon.shape, recon.min(), recon.max(), recon.mean(), '\n')
+        # print("[recon]", k, recon.shape, recon.min(), recon.max(), recon.mean(), '\n')
         recon_list.append(recon)
     # fuse the reconstructions
     gaussians_recon = torch.cat(recon_list, dim=1) # [B, 14, h, w]

@@ -359,7 +359,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         # input = torch.cat(
         #     [input_norm_uc, input_norm_cond, input_rgb_uc, input_rgb_cond], dim=0)
         input = torch.cat(domains_joint_list, dim=0)
-        print(f"num tasks={num_tasks} in reshape to cd input")
+        # print(f"num tasks={num_tasks} in reshape to cd input")
         return input
 
     def reshape_to_cfg_output(self, output):
@@ -376,7 +376,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         # output = torch.cat(
         #     [output_norm_uc, output_rgb_uc, output_norm_cond, output_rgb_cond],
         #     dim=0)
-        print(f"num tasks={num_tasks} in reshape to cfg ouput")
+        # print(f"num tasks={num_tasks} in reshape to cfg ouput")
         
         output = torch.cat(domains_uc + domains_cond, dim=0)
         # st()

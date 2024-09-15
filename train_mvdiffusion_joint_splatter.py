@@ -225,8 +225,6 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         out.append(_out_i[ii])  
                 out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
                 
-             
-                    
 
                 images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
                 
@@ -252,8 +250,8 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", B=cfg.validation_batch_size, D=num_domains, V=cfg.num_views)
                     splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                     
-                    for k, v in splatter_data_no_batch.items():
-                        print(k, v.shape)
+                    # for k, v in splatter_data_no_batch.items():
+                    #     print(k, v.shape)
                     gaussians = reconstruct_gaussians(splatter_data_no_batch)
                     gaussians = gaussians.to(unet.device)[None]
                     assert  gaussians.shape == data["gaussians_gt"].shape
@@ -281,10 +279,10 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         for k, v in gs_renderings.items():
             gs_pred_all[k] = torch.cat(v, dim=0)
     
-    for k, v in images_pred_all.items():
-        print("images_pred_all shape: ", k, v.shape)    
-    for k, v in gs_pred_all.items():
-        print("gs_pred_all shape: ", k, v.shape)
+    # for k, v in images_pred_all.items():
+    #     print("images_pred_all shape: ", k, v.shape)    
+    # for k, v in gs_pred_all.items():
+    #     print("gs_pred_all shape: ", k, v.shape)
     
     nrow = cfg.validation_grid_nrow
     ncol = images_cond_all.shape[0] // nrow
@@ -306,11 +304,9 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         for k, v in gs_pred_all.items():
             gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
         for k, v in gs_pred_grid.items():
-            print("gs_pred_grid: ", k, v.shape)
+            # print("gs_pred_grid: ", k, v.shape)
             save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
         
-        st()
-
     torch.cuda.empty_cache()
 
 

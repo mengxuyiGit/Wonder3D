@@ -453,7 +453,7 @@ class gobjverse(torch.utils.data.Dataset):
         else:
             view_id = self.fixed_input_views
             assert len(view_id) == self.num_views or self.read_first_view_only
-        print("view_id", len(view_id))
+        # print("view_id", len(view_id))
 
         chunk_idx = hash_key_to_chunk(scene_name, self.num_lmdb_chunks) if self.lmdb_6view_base is not None else None
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name)
@@ -466,7 +466,7 @@ class gobjverse(torch.utils.data.Dataset):
         
         ### no need to read the below infos
         rendering_loss_2dgs = self.rendering_loss_2dgs
-        print("rendering_loss_2dgs", rendering_loss_2dgs)
+        # print("rendering_loss_2dgs", rendering_loss_2dgs)
         if rendering_loss_2dgs:
         
             cam_poses = torch.from_numpy(tar_c2ws)
@@ -486,7 +486,7 @@ class gobjverse(torch.utils.data.Dataset):
             cam_view_proj = cam_view @ get_proj_matrix(results['fovy']) # [V, 4, 4]
             results['cam_view'] = cam_view
             results['cam_view_proj'] = cam_view_proj
-            print(self.split, "cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
+            # print(self.split, "cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
 
             read_normal = False
             if read_normal:
