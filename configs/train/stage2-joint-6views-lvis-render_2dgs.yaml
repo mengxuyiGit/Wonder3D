@@ -18,11 +18,11 @@ train_dataset:
   read_normal: true
   read_color: true
   overfit: false
-  debug: true
-  read_first_view_only: false
+  debug: false
   lmdb_6view_base: '/mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database'
-  rendering_loss_2dgs: ${rendering_loss_2dgs} 
-  render_views: 7
+  rendering_loss_2dgs: false # ${rendering_loss_2dgs} 
+  read_first_view_only: true
+  render_views: 10
 validation_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -37,10 +37,10 @@ validation_dataset:
   read_color: true
   overfit: ${train_dataset.overfit}
   debug: ${train_dataset.debug}
-  read_first_view_only: ${train_dataset.read_first_view_only}
   lmdb_6view_base: ${train_dataset.lmdb_6view_base}
   rendering_loss_2dgs: ${rendering_loss_2dgs} 
-  render_views: ${train_dataset.render_views}
+  read_first_view_only: false # ${train_dataset.read_first_view_only}
+  render_views: 20 # ${train_dataset.render_views}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -56,18 +56,18 @@ validation_train_dataset:
   read_color: true
   overfit: ${train_dataset.overfit}
   debug: ${train_dataset.debug}
-  read_first_view_only: ${train_dataset.read_first_view_only}
   lmdb_6view_base: ${train_dataset.lmdb_6view_base}
   rendering_loss_2dgs: ${rendering_loss_2dgs} 
+  read_first_view_only: false # ${train_dataset.read_first_view_only}
   render_views: ${train_dataset.render_views}
 
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-BSZ4_acc1_1gpu-DEBUG-2DGS-OVERFIT'
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ8_acc1_gpu2'
-# output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable'
-output_dir:  'outputs/debug/BSZ2_acc1-all_trainable-OVERFIT-DBBUG_zeroSNR'
+output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-SYNC_DOMAIN_TIME-BSZ16_acc1_gpu4-all_trainable' # todo: add checkpoint folders
+# output_dir:  'outputs/debug/BSZ2_acc1-all_trainable-OVERFIT-DBBUG_zeroSNR'
 
 seed: 42
-train_batch_size: 3 # original paper uses 32
+train_batch_size: 16 # original paper uses 32
 validation_batch_size: 1 # use 1 for gassian reconstruction ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 20000
@@ -97,8 +97,8 @@ checkpointing_steps: 500
 checkpoints_total_limit: null
 last_global_step: 0
 
-# resume_from_checkpoint: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE-BSZ4_acc1_gpu2/checkpoint
-resume_from_checkpoint: latest
+resume_from_checkpoint: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable/checkpoint-run2
+# resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
 validation_steps: 200
 validation_sanity_check: true
