@@ -107,6 +107,8 @@ class gobjverse(torch.utils.data.Dataset):
         debug: bool = False,
         read_first_view_only: bool = False,
         lmdb_6view_base: str = None,
+        rendering_loss_2dgs: bool = False,
+        render_views: int = 10,
         ):
         super(gobjverse, self).__init__()
 
@@ -202,6 +204,14 @@ class gobjverse(torch.utils.data.Dataset):
         
         self.load_normal = False # TODO: control this by config file, already has this flag
         
+        assert not (read_first_view_only and rendering_loss_2dgs), "Use rendering_loss_2dgs requires read_first_view_only=False, multiview supervision is required."
+
+        self.rendering_loss_2dgs = rendering_loss_2dgs
+        if self.rendering_loss_2dgs:
+            assert render_views >= num_views, "render_views should be larger than num_views"
+            self.render_views = render_views
+            print("render_views", self.render_views)
+
         self.read_first_view_only = read_first_view_only
         if read_first_view_only:
             self.fixed_input_views = [0] # same elevation
@@ -340,7 +350,7 @@ class gobjverse(torch.utils.data.Dataset):
         
         # read splatter
         splatter_uid = self.lmdbFiles.get_data(scene_name)
-        
+     
         # if self.overfit and self.split == 'test':
         #     selected_attr = gt_attr_keys[index%len(gt_attr_keys)]
         # else:
@@ -366,7 +376,7 @@ class gobjverse(torch.utils.data.Dataset):
                 results['imgs_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
             
         # results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-     
+
         if self.read_first_view_only:
             # [  0.,  90., 180., 270.,  30., 330.])
             assert len(tar_eles) == 1
@@ -438,9 +448,12 @@ class gobjverse(torch.utils.data.Dataset):
         #     src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
         #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
-        view_id = self.fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
-        # print("view_id", len(view_id))
-        assert len(view_id) == self.num_views or self.read_first_view_only
+        if self.rendering_loss_2dgs:
+            view_id = self.fixed_input_views + np.random.permutation(np.arange(0,38))[:(self.render_views-self.num_views)].tolist()
+        else:
+            view_id = self.fixed_input_views
+            assert len(view_id) == self.num_views or self.read_first_view_only
+        print("view_id", len(view_id))
 
         chunk_idx = hash_key_to_chunk(scene_name, self.num_lmdb_chunks) if self.lmdb_6view_base is not None else None
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name)
@@ -452,12 +465,12 @@ class gobjverse(torch.utils.data.Dataset):
         results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
         
         ### no need to read the below infos
-        rendering_loss_2dgs = False
+        rendering_loss_2dgs = self.rendering_loss_2dgs
+        print("rendering_loss_2dgs", rendering_loss_2dgs)
         if rendering_loss_2dgs:
         
             cam_poses = torch.from_numpy(tar_c2ws)
             
-
             # normalized camera feats as in paper (transform the first pose to a fixed position)
             radius = torch.norm(cam_poses[0, :3, 3])
             cam_poses[:, :3, 3] *= self.cam_radius / radius
@@ -466,7 +479,6 @@ class gobjverse(torch.utils.data.Dataset):
             # opengl to colmap camera for gaussian renderer
             cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
             results['cam_poses'] = cam_poses # [V, 4, 4]
-
             
             results['fovy'] = 0.69115037 # TODO
             # cameras needed by gaussian rasterizer
@@ -474,7 +486,7 @@ class gobjverse(torch.utils.data.Dataset):
             cam_view_proj = cam_view @ get_proj_matrix(results['fovy']) # [V, 4, 4]
             results['cam_view'] = cam_view
             results['cam_view_proj'] = cam_view_proj
-            print("cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
+            print(self.split, "cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
 
             read_normal = False
             if read_normal:
@@ -502,18 +514,21 @@ class gobjverse(torch.utils.data.Dataset):
 
             # print("mask", results['masks'].shape, "normals_out", results['normals_out'].shape, "imgs_out", results['imgs_out'].shape)
             
-            
         else:
             # del results['imgs_out']
             assert results.get('imgs_out') is None
         
         # read splatter attriubtes
         splatter_uid = self.lmdbFiles.get_data(scene_name)
+        
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs) # [-1,1]
 
         if rendering_loss_2dgs:
             results['gaussians_gt'] = splatter_original_Channel_mvimage_dict['gaussians_gt']
             del splatter_original_Channel_mvimage_dict['gaussians_gt']
+            if 'gaussians_recon' in splatter_original_Channel_mvimage_dict.keys():
+                results['gaussians_recon'] = splatter_original_Channel_mvimage_dict['gaussians_recon']
+                del splatter_original_Channel_mvimage_dict['gaussians_recon']
         
         assert len(splatter_original_Channel_mvimage_dict.keys()) == 5
         for key, value in splatter_original_Channel_mvimage_dict.items():
@@ -527,11 +542,11 @@ class gobjverse(torch.utils.data.Dataset):
             elevations = torch.tensor([tar_eles[0]] * 6)
             azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.])
         else:
-            elevations = torch.as_tensor(tar_eles).float()
-            azimuths = torch.as_tensor(tar_azis).float() 
+            elevations = torch.as_tensor(tar_eles[:self.num_views]).float()
+            azimuths = torch.as_tensor(tar_azis[:self.num_views]).float() 
  
-        elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # fixed only use 4 views to train
-        azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
+        elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # not including the rendering views
+        azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # not including the rendering views
         
         # print("elevations_cond", elevations_cond)
         # print("elevations", elevations)
