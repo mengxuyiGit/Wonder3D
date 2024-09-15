@@ -135,6 +135,8 @@ class TrainingConfig:
 
     last_global_step: int
     rendering_loss_2dgs: bool
+    zero_terminal_snr: bool
+    sync_domain_timesteps: bool
 
 
 def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg: TrainingConfig, accelerator, weight_dtype, global_step, name, save_dir):
@@ -312,6 +314,44 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     torch.cuda.empty_cache()
 
 
+# Copied from diffusers.schedulers.scheduling_ddim.rescale_zero_terminal_snr
+def rescale_zero_terminal_snr(betas):
+    """
+    Rescales betas to have zero terminal SNR Based on https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
+
+
+    Args:
+        betas (`torch.Tensor`):
+            the betas that the scheduler is being initialized with.
+
+    Returns:
+        `torch.Tensor`: rescaled betas with zero terminal SNR
+    """
+    # Convert betas to alphas_bar_sqrt
+    alphas = 1.0 - betas
+    alphas_cumprod = torch.cumprod(alphas, dim=0)
+    alphas_bar_sqrt = alphas_cumprod.sqrt()
+
+    # Store old values.
+    alphas_bar_sqrt_0 = alphas_bar_sqrt[0].clone()
+    alphas_bar_sqrt_T = alphas_bar_sqrt[-1].clone()
+
+    # Shift so the last timestep is zero.
+    alphas_bar_sqrt -= alphas_bar_sqrt_T
+
+    # Scale so the first timestep is back to the old value.
+    alphas_bar_sqrt *= alphas_bar_sqrt_0 / (alphas_bar_sqrt_0 - alphas_bar_sqrt_T)
+
+    # Convert alphas_bar_sqrt to betas
+    alphas_bar = alphas_bar_sqrt**2  # Revert sqrt
+    alphas = alphas_bar[1:] / alphas_bar[:-1]  # Revert cumprod
+    alphas = torch.cat([alphas_bar[0:1], alphas])
+    betas = 1 - alphas
+
+    return betas
+
+
+
 def main(
     cfg: TrainingConfig
 ):
@@ -359,7 +399,13 @@ def main(
 
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="scheduler")
-    # print("prediction type:", noise_scheduler.config.prediction_type) -> epislon
+    # print("prediction type:", noise_scheduler.config.prediction_type) # -> epislon
+    if cfg.zero_terminal_snr:
+        noise_scheduler = DDPMScheduler.from_config(noise_scheduler.config,  timestep_spacing="trailing") # zero terminal SNR    
+        noise_scheduler.betas = rescale_zero_terminal_snr(noise_scheduler.betas)
+        print("zero terminal SNR")
+        st()
+
     
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="image_encoder", revision=cfg.revision)
     feature_extractor = CLIPImageProcessor.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="feature_extractor", revision=cfg.revision)
@@ -739,7 +785,11 @@ def main(
                 # print("bzs: ", bsz)
 
                 # same noise for different views of the same object
-                timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
+                if cfg.sync_domain_timesteps:
+                    timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // (cfg.num_views * num_domains),), device=latents.device).repeat_interleave(cfg.num_views).repeat(num_domains)
+                else: # original wonder3d: different timesteps for different domains
+                    timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
+                st()
                 timesteps = timesteps.long()                
 
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
@@ -846,6 +896,8 @@ def main(
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
                     # This is discussed in Section 4.2 of the same paper.
                     snr = compute_snr(timesteps)
+                    # print("snr: ", snr)
+                    
                     mse_loss_weights = (
                         torch.stack([snr, cfg.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
                     )

@@ -64,11 +64,11 @@ validation_train_dataset:
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-BSZ4_acc1_1gpu-DEBUG-2DGS-OVERFIT'
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ8_acc1_gpu2'
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable'
-output_dir:  'outputs/debug/BSZ2_acc1-all_trainable-OVERFIT-DBBUG_render2dgs'
+output_dir:  'outputs/debug/BSZ2_acc1-all_trainable-OVERFIT-DBBUG_zeroSNR'
 
 seed: 42
-train_batch_size: 1 # original paper uses 32
-validation_batch_size: ${train_batch_size} # 16
+train_batch_size: 3 # original paper uses 32
+validation_batch_size: 1 # use 1 for gassian reconstruction ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 20000
 gradient_accumulation_steps: 1
@@ -137,5 +137,6 @@ unet_from_pretrained_kwargs:
 
 num_views: 6
 camera_embedding_type: 'e_de_da_sincos'
-
+zero_terminal_snr: false
+sync_domain_timesteps: true
 
