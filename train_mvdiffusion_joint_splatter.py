@@ -44,7 +44,7 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 # from mvdiffusion.data.provider_lara_splatter_no_h5 import gobjverse as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
 from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
-from utils.splatter_utils import gt_attr_keys, get_fused_gaussians
+from utils.splatter_utils import gt_attr_keys, reconstruct_gaussians, reconstruct_gaussians_batch
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
@@ -229,42 +229,39 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                 images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
                 
 
-                ## render 2dgs
-                ## c2w, fov, gaussians
-                # render(self, gaussians, cam_view, cam_view_proj, cam_pos, fovy, bg_color=None, scale_modifier=1):
-                # for j, data in enumerate(batch):
                 if rendering_loss_2dgs:
                     data = batch
 
-                    ## use GT gaussians
-                    # gaussians = data['gaussians_gt'].to(unet.device)
-                    
-                    # gaussians = data['gaussians_recon'].to(unet.device)
-                    # print("using V2 gaussians recond")
-                    
-                    from utils.splatter_utils import reconstruct_gaussians
-
-                    # splatter_data_no_batch = {k: rearrange(data[f"{k}_out"][0], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for k in gt_attr_keys}
-                    # print("gaussians recon from data v3 shape: ", gaussians.shape)
-                    
                     splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", B=cfg.validation_batch_size, D=num_domains, V=cfg.num_views)
-                    splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                     
-                    # for k, v in splatter_data_no_batch.items():
-                    #     print(k, v.shape)
-                    gaussians = reconstruct_gaussians(splatter_data_no_batch)
-                    gaussians = gaussians.to(unet.device)[None]
+                    batchify = True
+                    if not batchify:
+                        splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                        gaussians = reconstruct_gaussians(splatter_data_no_batch)
+                        gaussians = gaussians.to(unet.device)[None]
+                    else:
+                        splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                        gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
+                    
                     assert  gaussians.shape == data["gaussians_gt"].shape
                     print("gaussians recon from BVD out v5: ", gaussians.shape)
-                   
-                    # splatters_bdv = rearrange(out, "(B D V) C H W -> B D V C H W", B=cfg.validation_batch_size, D=num_domains, V=cfg.num_views)
-                    # gaussians = get_fused_gaussians(splatters_bdv).to(unet.device)
+                    
 
-                    gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
+                    if not batchify:
+                        gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
+                    else:
+                        gs_results_batch = defaultdict(list)
+                        for _gaussian, cam_view, cam_view_proj, cam_pos, fovy in zip(gaussians, data['cam_view'].to(unet.device), data['cam_view_proj'].to(unet.device), data['cam_poses'].to(unet.device), data['fovy'].to(unet.device)):
+                            gs_results = gs.render(gaussians=_gaussian[None], cam_view=cam_view[None], cam_view_proj=cam_view_proj[None], cam_pos=cam_pos[None], fovy=fovy[None])
+                            for k, v in gs_results.items():
+                                gs_results_batch[k].append(v)
+                        for k, v in gs_results_batch.items():
+                            gs_results_batch[k] = torch.cat(v, dim=0)
+                        gs_results = gs_results_batch
+                        
                     for k, v in gs_results.items():
                         v = rearrange(v, "B V C H W -> (B V) C H W")
                         gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
-                        # print("gs_renderings: ", k, v.shape)
                 
                 
     images_cond_all = torch.cat(images_cond, dim=0)

@@ -175,6 +175,23 @@ def reconstruct_gaussians(splatter_3Channel_image, key_suffix=None):
     
     return gaussians_recon
 
+
+def reconstruct_gaussians_batch(splatter_3Channel_image, key_suffix=None):
+    recon_list = []
+    for k in ordered_attr_list:
+        k = k + (key_suffix if key_suffix is not None else "")
+        # print(k, splatter_3Channel_image[k].shape)
+        recon = denormalize_and_activate(k, splatter_3Channel_image[k])
+        # print("[recon]", k, recon.shape, recon.min(), recon.max(), recon.mean(), '\n')
+        recon_list.append(recon)
+
+    # fuse the reconstructions
+    B = splatter_3Channel_image[k].shape[0]
+    gaussians_recon = torch.cat(recon_list, dim=1) # [B, 14, h, w]
+    gaussians_recon = gaussians_recon.reshape(B, 14, -1).permute(0, 2, 1)
+    
+    return gaussians_recon
+
 def get_fused_gaussians(splatters_bdv):
     B, D, V, C, H, W  = splatters_bdv.shape
     assert len(ordered_attr_list) == D
@@ -194,7 +211,7 @@ def get_fused_gaussians(splatters_bdv):
     gaussians = splatter_mv.permute(0, 1, 3, 4, 2).reshape(B, -1, 14)
     return gaussians
 
-def denormalize_and_activate(attr, mv_image):
+def denormalize_and_activate(attr, mv_image): # batchified
     # mv_image: B C H W, in range [0,1]
     
     sp_image_o = mv_image.clip(0,1)
