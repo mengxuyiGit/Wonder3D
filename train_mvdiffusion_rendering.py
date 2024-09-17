@@ -295,7 +295,10 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         #   2. save gt normals
         gs_pred_grid = {}
         for k, v in gs_pred_all.items():
-            gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
+            if '_normal' in k:
+                gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, normalize=True, value_range=(-1, 1))
+            else:
+                gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
         for k, v in gs_pred_grid.items():
             # print("gs_pred_grid: ", k, v.shape)
             save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
@@ -338,6 +341,28 @@ def rescale_zero_terminal_snr(betas):
     betas = 1 - alphas
 
     return betas
+
+def calculate_normal_error(results, data, fg_only=False):
+    rend_normal = results["rend_normal"]
+    gt_normal = data['normals_out']
+
+    gt_normal_error = (1 - (rend_normal * gt_normal)) # [B, Nv, 3, H, W]
+    
+    if fg_only:
+        assert NotImplementedError(" Need to calculate pixel number while keeping the batch dimension") # TODO: keep the batch dimension
+        gt_masks = data['masks']
+        foreground_normal_error = gt_normal_error * gt_masks
+        num_foreground_pixels = gt_masks.sum()  # Count the number of foreground pixels
+
+        if num_foreground_pixels > 0:
+            gt_normal_loss = (foreground_normal_error.sum() / num_foreground_pixels)
+            print("foreground_normal_error (gt): ", gt_normal_loss)
+        else:
+            gt_normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
+    else:
+        gt_normal_loss = gt_normal_error.mean(dim=(1, 2, 3, 4))  # Calculate the mean error across all pixels
+        
+    return gt_normal_loss
 
 
 
@@ -1010,7 +1035,7 @@ def main(
                 splatter_data_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                 gaussians = reconstruct_gaussians_batch(splatter_data_batch).to(unet.device)
                 
-                print("gaussians batch: ", gaussians.shape) 
+                # print("gaussians batch: ", gaussians.shape) 
                 
                 # debug = True
                 # if debug:
@@ -1027,28 +1052,7 @@ def main(
 
                 
                 # 4. rendering loss: MSE, LPIPS, normal loss
-                def calculate_normal_error(results, data, fg_only=False):
-                    rend_normal = results["rend_normal"]
-                    gt_normal = data['normals_out']
-
-                    gt_normal_error = (1 - (rend_normal * gt_normal)) # [B, Nv, 3, H, W]
-                    
-                    if fg_only:
-                        assert NotImplementedError(" Need to calculate pixel number while keeping the batch dimension") # TODO: keep the batch dimension
-                        gt_masks = data['masks']
-                        foreground_normal_error = gt_normal_error * gt_masks
-                        num_foreground_pixels = gt_masks.sum()  # Count the number of foreground pixels
-
-                        if num_foreground_pixels > 0:
-                            gt_normal_loss = (foreground_normal_error.sum() / num_foreground_pixels)
-                            print("foreground_normal_error (gt): ", gt_normal_loss)
-                        else:
-                            gt_normal_loss = 0.0  # Avoid division by zero in case of no foreground pixels
-                    else:
-                        gt_normal_loss = gt_normal_error.mean(dim=(1, 2, 3, 4))  # Calculate the mean error across all pixels
-                        
-                    return gt_normal_loss
-                
+              
                 # change the below reduction to keep the batch dim for mse_loss_weights
                 color_loss = F.mse_loss(gs_results['image'], batch['imgs_out'], reduction='none').mean(dim=(1, 2, 3, 4)) # both are 0-1
                 # save_image(rearrange(gs_results['image'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"color_{global_step}.png"))
@@ -1094,12 +1098,12 @@ def main(
                 #     if param.requires_grad and param.grad is not None:
                 #         print("grad: ", name)
                 #         if torch.isnan(param.grad).any():
-                #             print("nan gradient found", name)
+                #             print("---->nan gradient found", name)
                 # for name, param in vae.named_parameters():
                 #     if param.requires_grad and param.grad is not None:
                 #         print("grad: ", name, param.grad.mean())
                 #         if torch.isnan(param.grad).any():
-                #             print("nan gradient found", name)
+                #             print("---->nan gradient found", name)
                 
                 if accelerator.sync_gradients and cfg.max_grad_norm is not None:
                     
