@@ -19,36 +19,11 @@ import pickle
 from concurrent.futures import ThreadPoolExecutor
 
 from utils.splatter_utils import load_splatter_mv_ply_as_dict, gt_attr_keys
+from utils.camera_utils import fov_to_ixt, get_proj_matrix
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
-
-def fov_to_ixt(fov, reso):
-    ixt = np.eye(3, dtype=np.float32)
-    ixt[0][2], ixt[1][2] = reso[0]/2, reso[1]/2
-    focal = .5 * reso / np.tan(.5 * fov)
-    ixt[[0,1],[0,1]] = focal
-    return ixt
-
-def get_proj_matrix(fovy, z_near=0.5, z_far=2.5):
-    # self.tan_half_fov = np.tan(0.5 * np.deg2rad(self.opt.fovy))
-    # self.proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
-    # self.proj_matrix[0, 0] = 1 / self.tan_half_fov
-    # self.proj_matrix[1, 1] = 1 / self.tan_half_fov
-    # self.proj_matrix[2, 2] = (self.opt.zfar + self.opt.znear) / (self.opt.zfar - self.opt.znear)
-    # self.proj_matrix[3, 2] = - (self.opt.zfar * self.opt.znear) / (self.opt.zfar - self.opt.znear)
-    # self.proj_matrix[2, 3] = 1
-    
-    # replace the above self. with none
-    tan_half_fov = np.tan(0.5 * fovy) # fovy = 0.69115037 already in radian
-    proj_matrix = torch.zeros(4, 4, dtype=torch.float32)
-    proj_matrix[0, 0] = 1 / tan_half_fov
-    proj_matrix[1, 1] = 1 / tan_half_fov
-    proj_matrix[2, 2] = (z_far + z_near) / (z_far - z_near)
-    proj_matrix[3, 2] = - (z_far * z_near) / (z_far - z_near)
-    proj_matrix[2, 3] = 1
-    return proj_matrix
 
 import hashlib
 def hash_key_to_chunk(key, num_chunks):
@@ -109,6 +84,8 @@ class gobjverse(torch.utils.data.Dataset):
         lmdb_6view_base: str = None,
         rendering_loss_2dgs: bool = False,
         render_views: int = 10,
+        render_size: int = 256,
+        dataset_type: str = "lara",
         ):
         super(gobjverse, self).__init__()
 
@@ -121,6 +98,7 @@ class gobjverse(torch.utils.data.Dataset):
     
         self.data_root = root_dir
         self.cam_radius = 1.5
+        self.dataset_type = dataset_type
         
         # LMDB
         self.lmdb_6view_base = lmdb_6view_base
@@ -132,7 +110,7 @@ class gobjverse(torch.utils.data.Dataset):
         
         self.training =  self.training = not validation
         self.split = 'train' if self.training else 'test'
-        self.img_size = np.array([512]*2)
+        self.render_size = np.array([render_size]*2)
 
         self.metas = h5py.File(self.data_root, 'r')
         print("Loading data from", self.data_root)
@@ -142,7 +120,7 @@ class gobjverse(torch.utils.data.Dataset):
         
         # debug = False
         if debug:
-            scenes_name = scenes_name[:1000]
+            scenes_name = scenes_name[:200]
         
         if 'splits' in scenes_name:
             self.scenes_name = self.metas['splits']['test'][:].astype(str) #self.metas['splits'][self.split]
@@ -202,7 +180,7 @@ class gobjverse(torch.utils.data.Dataset):
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
         self.n_group = 4 # cfg.n_group
         
-        self.load_normal = False # TODO: control this by config file, already has this flag
+        self.load_normal = rendering_loss_2dgs 
         
         assert not (read_first_view_only and rendering_loss_2dgs), "Use rendering_loss_2dgs requires read_first_view_only=False, multiview supervision is required."
 
@@ -473,6 +451,7 @@ class gobjverse(torch.utils.data.Dataset):
             
             # normalized camera feats as in paper (transform the first pose to a fixed position)
             radius = torch.norm(cam_poses[0, :3, 3])
+            print("radius", radius)
             cam_poses[:, :3, 3] *= self.cam_radius / radius
             transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
             cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
@@ -488,7 +467,7 @@ class gobjverse(torch.utils.data.Dataset):
             results['cam_view_proj'] = cam_view_proj
             # print(self.split, "cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
 
-            read_normal = False
+            read_normal = True
             if read_normal:
                 normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
                 # depths = tar_img #[TODO: lara processed data has no depth]
@@ -500,18 +479,19 @@ class gobjverse(torch.utils.data.Dataset):
                 normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
                 # normalize normal
                 normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
-                # AFTER rotating normal, map normal to range [0,1]
-                normal_final = normal_final / 2.0 + 0.5
-                # make the bg of normal map to img bg
-                # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
-                normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
+
+                # # AFTER rotating normal, map normal to range [0,1]
+                # normal_final = normal_final / 2.0 + 0.5
+
+                # # make the bg of normal map to img bg
+                # # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
+                # normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
             
     
-                results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
-                results['normals_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+                results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.render_size[0], self.render_size[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
+                results['normals_out'] = F.interpolate(normal_final, size=(self.render_size[0], self.render_size[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
             
-            results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
-
+            results['imgs_out'] = F.interpolate(images, size=(self.render_size[0], self.render_size[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
             # print("mask", results['masks'].shape, "normals_out", results['normals_out'].shape, "imgs_out", results['imgs_out'].shape)
             
         else:
@@ -566,6 +546,7 @@ class gobjverse(torch.utils.data.Dataset):
         })
 
         camera_embeddings = torch.stack([elevations_cond, elevations-elevations_cond, azimuths-azimuths_cond], dim=-1) # (Nv, 3)
+        # print("camera_embeddings", camera_embeddings)
         results['camera_embeddings'] = camera_embeddings
 
         # # task embedding
@@ -582,7 +563,8 @@ class gobjverse(torch.utils.data.Dataset):
             results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*self.num_views, dim=0)
 
 
-        results['scene_name'] = scene_name #uid.split('/')[-1]
+        # results['scene_name'] = scene_name #uid.split('/')[-1]
+        # results['splatter_uid'] = splatter_uid
       
         return results
     
@@ -662,7 +644,7 @@ class gobjverse(torch.utils.data.Dataset):
             
         w2c = np.linalg.inv(c2w)
         fov = np.array(scene[f'fov_{view_idx}'], dtype=np.float32)
-        ixt = fov_to_ixt(fov, self.img_size) # TOOD: return fov directly
+        ixt = fov_to_ixt(fov, self.render_size) # TOOD: return fov directly
      
         
         return ixt, c2w, w2c, ele, azi
