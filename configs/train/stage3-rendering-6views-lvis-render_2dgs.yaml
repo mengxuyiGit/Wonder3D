@@ -1,6 +1,7 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 # pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus/checkpoint-run5-13500' # stage 1 checkpoint
-pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable/checkpoint-run2' # stage 2 checkpoint
+# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable/checkpoint-run2' # stage 2 checkpoint
+pretrained_unet_path: 'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/checkpoint'
 revision: null
 rendering_loss_2dgs: true
 train_dataset:
@@ -16,15 +17,37 @@ train_dataset:
   num_validation_samples: 4
   read_normal: true
   read_color: true
-  overfit: true
-  debug: false
+  overfit: false
+  debug: true
   lmdb_6view_base: '/mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database'
   rendering_loss_2dgs: true # ${rendering_loss_2dgs} 
   read_first_view_only: false
   render_views: 10
   render_size: ${render_size}
+# validation_dataset:
+#   root_dir: ${train_dataset.root_dir}  # change to your path
+#   object_list: './data_lists/single_obj.json'
+#   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
+#   num_views: 6
+#   groups_num: 1
+#   bg_color: 'white'
+#   img_wh: ${train_dataset.img_wh}
+#   validation: true
+#   num_validation_samples: 4
+#   read_normal: true
+#   read_color: true
+#   overfit: ${train_dataset.overfit}
+#   debug: ${train_dataset.debug}
+#   lmdb_6view_base: ${train_dataset.lmdb_6view_base}
+#   rendering_loss_2dgs: ${rendering_loss_2dgs} 
+#   read_first_view_only: false # ${train_dataset.read_first_view_only}
+#   render_views: 20 # ${train_dataset.render_views}
+#   render_size: ${render_size}
 validation_dataset:
-  root_dir: ${train_dataset.root_dir}  # change to your path
+  # root_dir: ${train_dataset.root_dir}  # change to your path
+  # dataset_type: null
+  root_dir: /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
+  dataset_type: 'gso'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
   num_views: 6
@@ -63,17 +86,21 @@ validation_train_dataset:
   render_views: ${train_dataset.render_views}
   render_size: ${render_size}
 
-# output_dir:  'outputs/debug/wonder3D-joint-128-lara_splatter-rope-RENDER_LOSS-BSZ2_acc1_gpu4-all_trainable-DEBUG' # todo: add checkpoint folders
-output_dir:  'outputs/overfit/BSZ16_acc1-vae_decoder_trainable-OVERFIT_render_loss_2dgs' # todo: add checkpoint folders
+# output_dir:  'outputs/overfit/BSZ16_acc1-vae_decoder_trainable-OVERFIT_render_loss_2dgs-RUN2-lr10x' # todo: add checkpoint folders
+# output_dir:  'outputs/overfit/BSZ16_acc1-vae_decoder_trainable-OVERFIT_render_loss_2dgs-RUN4-splatter-normal_loss' # todo: add checkpoint folders
+# output_dir:  'outputs/overfit/BSZ16_acc1-vae_decoder_trainable-OVERFIT_render_loss_2dgs-RUN4-splatter_loss' # todo: add checkpoint folders
+# output_dir:  'outputs/debug/BSZ16_acc1-vae_decoder_trainable-OVERFIT_render_loss_2dgs-RUN4-rendering_loss' # todo: add checkpoint folders
+# output_dir:  'outputs/inference/testing_old_decoder'
+output_dir:  'outputs/debug/GSO' # todo: add checkpoint folders
 
 seed: 42
-train_batch_size: 16 # original paper uses 32
+train_batch_size: 2 # original paper uses 32
 validation_batch_size: 2 # use 1 for gassian reconstruction ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 20000
 gradient_accumulation_steps: 1
 gradient_checkpointing: true
-learning_rate: 5.e-5
+learning_rate: 5.e-5 # 5.e-5
 scale_lr: false
 lr_scheduler: "constant_with_warmup"
 lr_warmup_steps: 100
@@ -93,7 +120,7 @@ logging_dir: logs
 mixed_precision: "bf16"
 report_to: 'tensorboard'
 local_rank: -1
-checkpointing_steps: 500
+checkpointing_steps: 1000
 checkpoints_total_limit: null
 last_global_step: 0
 
@@ -106,8 +133,11 @@ tracker_project_name: 'mvdiffusion-image-v1'
 
 # trainable_modules: null
 # pretrained_decoder_path: '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00008-LARA_DATA-sd_decoder-2dgs-GT_normal_loss_foreground-resume8800-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_8000_ckpt/model.safetensors'
+# pretrained_decoder_path: '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00010-correct_vae_loading-Wonder3D_VAE-256-lara_data-2dgs-GT_normal_loss_after_6000-bsz16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_15500_ckpt/model.safetensors'
+# pretrained_decoder_path: '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00011-independent_encode_mv_True-resume15500-immediate_GTnormal_loss-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_7000_ckpt/model.safetensors'
+pretrained_decoder_path: '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_10000_ckpt/model.safetensors'
 trainable_modules: ['vae.decoder']
-pretrained_decoder_path: null
+# pretrained_decoder_path: null
 use_classifier_free_guidance: true
 condition_drop_rate: 0.05
 drop_type: 'drop_as_a_whole'  # modify
@@ -118,7 +148,8 @@ pipe_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
   num_views: 6
 
-validation_guidance_scales: [1., 3., 0.]
+validation_guidance_scales: [1., 3., 5., 7., 9.]
+# validation_guidance_scales: [3.0]
 pipe_validation_kwargs:
   eta: 1.0
 validation_grid_nrow: 10
@@ -144,8 +175,8 @@ sync_domain_timesteps: false
 rendering_loss_weights:
   color: 1.0
   mask: 1.0
-  normal: 1.0
-  splatter: 1.0
+  normal: 0.0
+  splatter: 0.0
   lpips: 2.0
 
 render_size: 256
