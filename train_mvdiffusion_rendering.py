@@ -173,6 +173,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     num_domains = 5
     
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
+    # st()
     for i, batch in enumerate(dataloader):
         # (B, Nv, 3, H, W)
         # imgs_in, colors_out, normals_out = batch['imgs_in'], batch['imgs_out'], batch['normals_out']
@@ -181,7 +182,10 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         # imgs_out = torch.cat([normals_out, colors_out], dim=0)
         
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
-        imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
+        if dataloader.dataset.dataset_type == 'gso':
+            imgs_out = torch.zeros_like(imgs_in)
+        else:
+            imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
         
         
         # (2B, Nv, Nce)
@@ -235,7 +239,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                 if rendering_loss_2dgs:
                     data = batch
 
-                    splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", B=cfg.validation_batch_size, D=num_domains, V=cfg.num_views)
+                    splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
                     
                     batchify = True
                     if not batchify:
@@ -246,7 +250,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                         gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
                     
-                    assert  gaussians.shape == data["gaussians_gt"].shape
+                    # assert  gaussians.shape == data["gaussians_gt"].shape
                     print("gaussians recon from BVD out v5: ", gaussians.shape)
                    
 
@@ -258,7 +262,22 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     for k, v in gs_results.items():
                         v = rearrange(v, "B V C H W -> (B V) C H W")
                         gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
-                
+                        
+                    # # render videos
+                    # from kiui import orbit_camera
+                    # if cfg.fancy_video:
+                    #     azimuth = np.arange(0, 720, 4, dtype=np.int32)
+                    #     for azi in tqdm(azimuth):
+                    #         cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
+                    #         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                    #         # cameras needed by gaussian rasterizer
+                    #         cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+                    #         cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
+                    #         cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+                    #         scale = min(azi / 360, 1)
+                    #         image = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=scale)['image']
+                    #         images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))(image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+            
                 
     images_cond_all = torch.cat(images_cond, dim=0)
     images_gt_all = torch.cat(images_gt, dim=0)
@@ -483,7 +502,7 @@ def main(
                     
                 if not torch.equal(param, vae_encoder_weights_after[name]):
                     print(f"vae.encoder.{name} weights changed after loading pretrained_decoder_path")
-            st()
+            # st()
         
         
         torch.cuda.empty_cache()
@@ -675,12 +694,18 @@ def main(
     train_dataset = MVDiffusionDataset(
         **cfg.train_dataset
     )
-    validation_dataset = MVDiffusionDataset(
-        **cfg.validation_dataset
-    )
-    validation_train_dataset = MVDiffusionDataset(
-        **cfg.validation_train_dataset
-    )
+    if cfg.validation_dataset.dataset_type == "gso":
+        from mvdiffusion.data.dataset_v5_GSO import GSODataset
+        validation_dataset = GSODataset(
+            **cfg.validation_dataset
+        )
+    else:
+        validation_dataset = MVDiffusionDataset(
+            **cfg.validation_dataset
+        )
+    # validation_train_dataset = MVDiffusionDataset(
+    #     **cfg.validation_train_dataset
+    # )
 
     def random_init(id):
         torch.utils.data.get_worker_info().dataset.worker_init_open_db()
@@ -694,10 +719,10 @@ def main(
         validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
         worker_init_fn=random_init, pin_memory=True, persistent_workers=True
     )
-    validation_train_dataloader = torch.utils.data.DataLoader(
-        validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
-        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    )
+    # validation_train_dataloader = torch.utils.data.DataLoader(
+    #     validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+    #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    # )
 
     gs = GaussianRenderer(output_size=cfg.render_size) # check whether prepare is necessary
 
@@ -803,6 +828,27 @@ def main(
             first_epoch = global_step // num_update_steps_per_epoch
             resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
+    
+    ## add a log validation right before training, without any gradient updates
+    if accelerator.is_main_process:
+        log_validation(
+            validation_dataloader,
+            vae,
+            feature_extractor,
+            image_encoder,
+            unet,
+            cfg,
+            accelerator,
+            weight_dtype,
+            'init',
+            'validation',
+            vis_dir
+        )
+        print("log validation before training, saved to ", vis_dir)
+        st()
+
+    
+    
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
@@ -866,147 +912,148 @@ def main(
                 
            
                 latents = vae.encode(imgs_out * 2.0 - 1.0).latent_dist.sample() * vae.config.scaling_factor
-                
-                # scale_and_unscale = True
-                # if scale_and_unscale:
-                #     latents = vae.encode((imgs_out * 2.0 - 1.0) * 0.5 / 0.8).latent_dist.sample() * vae.config.scaling_factor
 
                 # DO NOT use this! Very slow!                
                 # imgs_in_pil = [TF.to_pil_image(img) for img in imgs_in]
                 # imgs_in_proc = feature_extractor(images=imgs_in_pil, return_tensors='pt').pixel_values.to(dtype=latents.dtype, device=latents.device)
 
-                imgs_in_proc = TF.resize(imgs_in, (feature_extractor.crop_size['height'], feature_extractor.crop_size['width']), interpolation=InterpolationMode.BICUBIC)
-                # do the normalization in float32 to preserve precision
-                imgs_in_proc = ((imgs_in_proc.float() - clip_image_mean) / clip_image_std).to(weight_dtype)        
-
-                # (B*Nv, 1, 768)
-                image_embeddings = image_encoder(imgs_in_proc).image_embeds.unsqueeze(1)
-
-                noise = torch.randn_like(latents)
-                bsz = latents.shape[0]
-                # print("bzs: ", bsz)
-
-                # same noise for different views of the same object
-                if cfg.sync_domain_timesteps:
-                    timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // (cfg.num_views * num_domains),), device=latents.device).repeat_interleave(cfg.num_views).repeat(num_domains)
-                else: # original wonder3d: different timesteps for different domains
-                    timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
-                timesteps = timesteps.long()                
-
-                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-
-                # Conditioning dropout to support classifier-free guidance during inference. For more details
-                # check out the section 3.2.1 of the original paper https://arxiv.org/abs/2211.09800.
-                if cfg.use_classifier_free_guidance and cfg.condition_drop_rate > 0.:
-                    # assert cfg.drop_type == 'dro>p_as_a_whole'
-                    if cfg.drop_type == 'drop_as_a_whole':
-                        # drop a group of normals and colors as a whole
-                        random_p = torch.rand(bnm, device=latents.device, generator=generator)
-                        
-                        # Sample masks for the conditioning images.
-                        image_mask_dtype = cond_vae_embeddings.dtype
-                        image_mask = 1 - (
-                            (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
-                            * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
-                        )
-                        image_mask = image_mask.reshape(bnm, 1, 1, 1, 1).repeat(1, Nv, 1, 1, 1)
-                        image_mask = rearrange(image_mask, "B Nv C H W -> (B Nv) C H W")
-                        image_mask = torch.cat([image_mask]*num_domains, dim=0)
-                        # Final image conditioning.
-                        cond_vae_embeddings = image_mask * cond_vae_embeddings
-
-                        # Sample masks for the conditioning images.
-                        clip_mask_dtype = image_embeddings.dtype
-                        clip_mask = 1 - (
-                            (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
-                        )
-                        clip_mask = clip_mask.reshape(bnm, 1, 1, 1).repeat(1, Nv, 1, 1)
-                        clip_mask = rearrange(clip_mask, "B Nv M C -> (B Nv) M C")
-                        clip_mask = torch.cat([clip_mask]*num_domains, dim=0)
-                        # Final image conditioning.
-                        image_embeddings = clip_mask * image_embeddings
-                    elif cfg.drop_type == 'drop_independent':
-                        # randomly drop all independently
-                        random_p = torch.rand(bsz, device=latents.device, generator=generator)
-
-                        # Sample masks for the conditioning images.
-                        image_mask_dtype = cond_vae_embeddings.dtype
-                        image_mask = 1 - (
-                            (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
-                            * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
-                        )
-                        image_mask = image_mask.reshape(bsz, 1, 1, 1)
-                        # Final image conditioning.
-                        cond_vae_embeddings = image_mask * cond_vae_embeddings
-
-                        # Sample masks for the conditioning images.
-                        clip_mask_dtype = image_embeddings.dtype
-                        clip_mask = 1 - (
-                            (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
-                        )
-                        clip_mask = clip_mask.reshape(bsz, 1, 1)
-                        # Final image conditioning.
-                        image_embeddings = clip_mask * image_embeddings
-                    elif cfg.drop_type == 'drop_joint':
-                        # randomly drop all independently. Different from "drop_as_a_whole", this one drops only random views of the same object
-                        random_p = torch.rand(bsz//num_domains, device=latents.device, generator=generator)
-
-                        # Sample masks for the conditioning images.
-                        image_mask_dtype = cond_vae_embeddings.dtype
-                        image_mask = 1 - (
-                            (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
-                            * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
-                        )
-                        image_mask = torch.cat([image_mask]*num_domains, dim=0)
-                        image_mask = image_mask.reshape(bsz, 1, 1, 1)
-                        # Final image conditioning.
-                        cond_vae_embeddings = image_mask * cond_vae_embeddings
-
-                        # Sample masks for the conditioning images.
-                        clip_mask_dtype = image_embeddings.dtype
-                        clip_mask = 1 - (
-                            (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
-                        )
-                        clip_mask = torch.cat([clip_mask]*num_domains, dim=0)
-                        clip_mask = clip_mask.reshape(bsz, 1, 1)
-                        # Final image conditioning.
-                        image_embeddings = clip_mask * image_embeddings
-                
-                # (B*Nv, 8, Hl, Wl)
-                latent_model_input = torch.cat([noisy_latents, cond_vae_embeddings], dim=1)
-
-                model_pred = unet(
-                    latent_model_input,
-                    timesteps,
-                    encoder_hidden_states=image_embeddings,
-                    class_labels=camera_task_embeddings
-                ).sample
-
-                # Get the target for loss depending on the prediction type
-                if noise_scheduler.config.prediction_type == "epsilon":
-                    target = noise
-                elif noise_scheduler.config.prediction_type == "v_prediction":
-                    target = noise_scheduler.get_velocity(latents, noise, timesteps)
+                if only_train_decoder:
+                    mse_loss_weights = 1.0
+                    loss = 0.0
+                    # print("skipping model_pred of unet")
                 else:
-                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}") 
+                    imgs_in_proc = TF.resize(imgs_in, (feature_extractor.crop_size['height'], feature_extractor.crop_size['width']), interpolation=InterpolationMode.BICUBIC)
+                    # do the normalization in float32 to preserve precision
+                    imgs_in_proc = ((imgs_in_proc.float() - clip_image_mean) / clip_image_std).to(weight_dtype)        
 
-                if cfg.snr_gamma is None:
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-                else:
-                    # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
-                    # Since we predict the noise instead of x_0, the original formulation is slightly changed.
-                    # This is discussed in Section 4.2 of the same paper.
-                    snr = compute_snr(timesteps)
+                    # (B*Nv, 1, 768)
+                    image_embeddings = image_encoder(imgs_in_proc).image_embeds.unsqueeze(1)
+
+                    noise = torch.randn_like(latents)
+                    bsz = latents.shape[0]
+                    # print("bzs: ", bsz)
+
+                    # same noise for different views of the same object
+                    if cfg.sync_domain_timesteps:
+                        timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // (cfg.num_views * num_domains),), device=latents.device).repeat_interleave(cfg.num_views).repeat(num_domains)
+                    else: # original wonder3d: different timesteps for different domains
+                        timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
+                    timesteps = timesteps.long()                
+
+                    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+
+                    # Conditioning dropout to support classifier-free guidance during inference. For more details
+                    # check out the section 3.2.1 of the original paper https://arxiv.org/abs/2211.09800.
+                    if cfg.use_classifier_free_guidance and cfg.condition_drop_rate > 0.:
+                        # assert cfg.drop_type == 'dro>p_as_a_whole'
+                        if cfg.drop_type == 'drop_as_a_whole':
+                            # drop a group of normals and colors as a whole
+                            random_p = torch.rand(bnm, device=latents.device, generator=generator)
+                            
+                            # Sample masks for the conditioning images.
+                            image_mask_dtype = cond_vae_embeddings.dtype
+                            image_mask = 1 - (
+                                (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
+                                * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
+                            )
+                            image_mask = image_mask.reshape(bnm, 1, 1, 1, 1).repeat(1, Nv, 1, 1, 1)
+                            image_mask = rearrange(image_mask, "B Nv C H W -> (B Nv) C H W")
+                            image_mask = torch.cat([image_mask]*num_domains, dim=0)
+                            # Final image conditioning.
+                            cond_vae_embeddings = image_mask * cond_vae_embeddings
+
+                            # Sample masks for the conditioning images.
+                            clip_mask_dtype = image_embeddings.dtype
+                            clip_mask = 1 - (
+                                (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
+                            )
+                            clip_mask = clip_mask.reshape(bnm, 1, 1, 1).repeat(1, Nv, 1, 1)
+                            clip_mask = rearrange(clip_mask, "B Nv M C -> (B Nv) M C")
+                            clip_mask = torch.cat([clip_mask]*num_domains, dim=0)
+                            # Final image conditioning.
+                            image_embeddings = clip_mask * image_embeddings
+                        elif cfg.drop_type == 'drop_independent':
+                            # randomly drop all independently
+                            random_p = torch.rand(bsz, device=latents.device, generator=generator)
+
+                            # Sample masks for the conditioning images.
+                            image_mask_dtype = cond_vae_embeddings.dtype
+                            image_mask = 1 - (
+                                (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
+                                * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
+                            )
+                            image_mask = image_mask.reshape(bsz, 1, 1, 1)
+                            # Final image conditioning.
+                            cond_vae_embeddings = image_mask * cond_vae_embeddings
+
+                            # Sample masks for the conditioning images.
+                            clip_mask_dtype = image_embeddings.dtype
+                            clip_mask = 1 - (
+                                (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
+                            )
+                            clip_mask = clip_mask.reshape(bsz, 1, 1)
+                            # Final image conditioning.
+                            image_embeddings = clip_mask * image_embeddings
+                        elif cfg.drop_type == 'drop_joint':
+                            # randomly drop all independently. Different from "drop_as_a_whole", this one drops only random views of the same object
+                            random_p = torch.rand(bsz//num_domains, device=latents.device, generator=generator)
+
+                            # Sample masks for the conditioning images.
+                            image_mask_dtype = cond_vae_embeddings.dtype
+                            image_mask = 1 - (
+                                (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
+                                * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
+                            )
+                            image_mask = torch.cat([image_mask]*num_domains, dim=0)
+                            image_mask = image_mask.reshape(bsz, 1, 1, 1)
+                            # Final image conditioning.
+                            cond_vae_embeddings = image_mask * cond_vae_embeddings
+
+                            # Sample masks for the conditioning images.
+                            clip_mask_dtype = image_embeddings.dtype
+                            clip_mask = 1 - (
+                                (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
+                            )
+                            clip_mask = torch.cat([clip_mask]*num_domains, dim=0)
+                            clip_mask = clip_mask.reshape(bsz, 1, 1)
+                            # Final image conditioning.
+                            image_embeddings = clip_mask * image_embeddings
                     
-                    mse_loss_weights = (
-                        torch.stack([snr, cfg.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
-                    )
-                    # We first calculate the original loss. Then we mean over the non-batch dimensions and
-                    # rebalance the sample-wise losses with their respective loss weights.
-                    # Finally, we take the mean of the rebalanced loss.
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-                    loss = loss.mean()                    
+                    # (B*Nv, 8, Hl, Wl)
+                    latent_model_input = torch.cat([noisy_latents, cond_vae_embeddings], dim=1)
+
+                    model_pred = unet(
+                        latent_model_input,
+                        timesteps,
+                        encoder_hidden_states=image_embeddings,
+                        class_labels=camera_task_embeddings
+                    ).sample
+
+                    # Get the target for loss depending on the prediction type
+                    if noise_scheduler.config.prediction_type == "epsilon":
+                        target = noise
+                    elif noise_scheduler.config.prediction_type == "v_prediction":
+                        target = noise_scheduler.get_velocity(latents, noise, timesteps)
+                    else:
+                        raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}") 
+
+                    if cfg.snr_gamma is None:
+                        loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                    else:
+                        # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
+                        # Since we predict the noise instead of x_0, the original formulation is slightly changed.
+                        # This is discussed in Section 4.2 of the same paper.
+                        snr = compute_snr(timesteps)
+                        
+                        mse_loss_weights = (
+                            torch.stack([snr, cfg.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+                        )
+                        # We first calculate the original loss. Then we mean over the non-batch dimensions and
+                        # rebalance the sample-wise losses with their respective loss weights.
+                        # Finally, we take the mean of the rebalanced loss.
+                        loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                        loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
+                        loss = loss.mean()                    
                 
                 # ===============================================
                 #### TODO: add rendering loss
@@ -1014,21 +1061,28 @@ def main(
                 debug = True
                 if debug:
                     latents_pred = latents
+                    
+                    # print("loading sp_image_batch_to_decode.pt")
+                    # latents_pred = torch.load('/mnt/kostas_home/lilym/LGM/LGM/latents_all_attr_to_decode.pt').to(latents.dtype).to(latents.device)
+                    # latents_pred = rearrange(latents_pred, "B C (m H) (n W) -> (B m n) C H W", m=3, n=2)
+                    # st()
                 else:
                     # TODO:
                     latents_pred = noisy_latents - model_pred # ? this is not the correct way to get noise, should also involve beta
                 
                 # 1. decoder: latent --> splatters
                 splatters = vae.decode(latents_pred / vae.config.scaling_factor, return_dict=False)[0] # [60, 3, 128, 128], -1.5 ~ + 1.5
+           
+                splatters = (splatters / 2 + 0.5) 
+                splatters = splatters.clamp(0, 1)
                 
-                # if scale_and_unscale:
-                #      splatters = splatters / 0.5 * 0.8
-                #      st()
-                
-                splatters = (splatters / 2 + 0.5) # TODO: not clip to regularize the floaters
-                # splatters = splatters.clamp(0, 1)
-
+            
                 ## 1c: TODO add splatter loss (but may contradict with the rendering loss)
+                loss_splatter = F.mse_loss(splatters, imgs_out, reduction='none').mean(dim=(1, 2, 3))
+                loss_splatter = rearrange(loss_splatter, "(D B V) -> B (D V)", D=num_domains, V=cfg.num_views).mean(dim=1)
+                # save_image(splatters, os.path.join(vis_dir, f"splatter_{global_step}.png"))
+                # save_image(imgs_out, os.path.join(vis_dir, f"gt_splatter_{global_step}.png"))
+                
                 
                 # 2. splatters --> gaussians
                 splatters_bdv = rearrange(splatters, "(D B V) C H W -> B D V C H W", B=cfg.train_batch_size, D=num_domains, V=cfg.num_views)
@@ -1052,29 +1106,36 @@ def main(
 
                 
                 # 4. rendering loss: MSE, LPIPS, normal loss
+                save_vis = global_step % cfg.validation_steps == 0
               
                 # change the below reduction to keep the batch dim for mse_loss_weights
                 color_loss = F.mse_loss(gs_results['image'], batch['imgs_out'], reduction='none').mean(dim=(1, 2, 3, 4)) # both are 0-1
-                # save_image(rearrange(gs_results['image'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"color_{global_step}.png"))
-                # save_image(rearrange(batch['imgs_out'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"gt_color_{global_step}.png"))
+                # if save_vis:
+                save_image(rearrange(gs_results['image'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"color_{global_step}.png"))
+                save_image(rearrange(batch['imgs_out'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"gt_color_{global_step}.png"))
+                st()
                 
                 mask_loss = F.mse_loss(gs_results['alpha'], batch['masks'], reduction="none").mean(dim=(1, 2, 3, 4)) # both are 0-1
-                # save_image(rearrange(gs_results['alpha'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"mask_{global_step}.png"))
-                # save_image(rearrange(batch['masks'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"gt_mask_{global_step}.png"))  
+                if save_vis:
+                    save_image(rearrange(gs_results['alpha'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"mask_{global_step}.png"))
+                    save_image(rearrange(batch['masks'], "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"gt_mask_{global_step}.png"))  
                 
                 normal_loss = calculate_normal_error(gs_results, batch) # both are -1~1, to calculate the cosine distance
-                # # save visualization of rendering normal and gt normal
-                # save_image(rearrange(gs_results['rend_normal']*0.5 + 0.5, "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"rend_normal_{global_step}.png"))
-                # save_image(rearrange(batch['normals_out']*0.5 + 0.5, "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"gt_normal_{global_step}.png"))
+                if save_vis:
+                    # save visualization of rendering normal and gt normal
+                    save_image(rearrange(gs_results['rend_normal']*0.5 + 0.5, "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"rend_normal_{global_step}.png"))
+                    save_image(rearrange(batch['normals_out']*0.5 + 0.5, "B V C H W -> (B V) C H W"), os.path.join(vis_dir, f"gt_normal_{global_step}.png"))
                     
                 # LPIPI_loss = ## TODO: add LPIPS loss
                 
                 # 4a. add rendering loss to the total "loss"
-                rendering_loss = cfg.rendering_loss_weights['color'] * color_loss + cfg.rendering_loss_weights['mask'] * mask_loss + cfg.rendering_loss_weights['normal'] * normal_loss
+                rendering_loss = cfg.rendering_loss_weights['color'] * color_loss + cfg.rendering_loss_weights['mask'] * mask_loss + cfg.rendering_loss_weights['normal'] * normal_loss \
+                    + cfg.rendering_loss_weights['splatter'] * loss_splatter
+                # print("adding splatter loss")
                 #  + lpips_loss
 
                 # process mse_loss_weights for each individual splatter to the integrated rendering. Take Avg.
-                rendering_loss_weights = rearrange(mse_loss_weights, "(D B V) -> B (D V)", D=num_domains, V=cfg.num_views).mean(dim=1)
+                rendering_loss_weights = rearrange(mse_loss_weights, "(D B V) -> B (D V)", D=num_domains, V=cfg.num_views).mean(dim=1) if isinstance(mse_loss_weights, torch.Tensor) else mse_loss_weights
                 
                 if only_train_decoder:
                     loss = (rendering_loss_weights * rendering_loss).mean() # no original latent loss
