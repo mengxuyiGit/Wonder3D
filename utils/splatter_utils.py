@@ -153,7 +153,7 @@ def load_splatter_mv_ply_as_dict_debug(splatter_dir, device="cpu", range_01=True
         assert sp_image.shape[0] == 3
         splatter_3Channel_image[attr_to_encode] = sp_image.detach().cpu()
     
-    debug = False
+    debug = True
     if debug and return_gassians:
         gaussians_recon = reconstruct_gaussians(splatter_3Channel_image)
         assert  gaussians_recon.shape == splatter_3Channel_image["gaussians_gt"].shape
@@ -238,4 +238,17 @@ def denormalize_and_activate(attr, mv_image): # batchified
         sp_image_o = einops.rearrange(quaternion, 'b h w c -> b c h w')   
         
     return sp_image_o
-    
+
+
+## render
+from collections import defaultdict
+def gs_render_batch(gs, gaussians, data, device):
+    gs_results_batch = defaultdict(list)
+    for _gaussian, cam_view, cam_view_proj, cam_pos, fovy in zip(gaussians, data['cam_view'].to(device), data['cam_view_proj'].to(device), data['cam_poses'].to(device), data['fovy'].to(device)):
+        gs_results = gs.render(gaussians=_gaussian[None], cam_view=cam_view[None], cam_view_proj=cam_view_proj[None], cam_pos=cam_pos[None], fovy=fovy[None])
+        for k, v in gs_results.items():
+            gs_results_batch[k].append(v)
+    for k, v in gs_results_batch.items():
+        gs_results_batch[k] = torch.cat(v, dim=0)
+    return gs_results_batch
+                            
