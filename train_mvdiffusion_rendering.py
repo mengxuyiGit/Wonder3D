@@ -170,6 +170,12 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         print("Successfully inited GaussianRenderer")
         gs_renderings = defaultdict(list)
         
+    calculate_metrics = True
+    if calculate_metrics:
+        from kiui.lpips import LPIPS
+        self_lpips_loss = LPIPS(net='vgg')
+        self_lpips_loss.requires_grad_(False)
+
     num_domains = 5
     
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
@@ -182,12 +188,10 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         # imgs_out = torch.cat([normals_out, colors_out], dim=0)
         
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
-        if dataloader.dataset.dataset_type == 'gso':
-            imgs_out = torch.zeros_like(imgs_in)
-        else:
-            imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
-        
-        
+    
+        # imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
+        imgs_out = batch['imgs_out']
+     
         # (2B, Nv, Nce)
         camera_embeddings = torch.cat([batch['camera_embeddings']]*num_domains, dim=0)
 
@@ -202,57 +206,59 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         camera_task_embeddings = rearrange(camera_task_embeddings, "B Nv Nce -> (B Nv) Nce")
 
         images_cond.append(imgs_in)
-        imgs_out = rearrange_images(imgs_out)
+        # imgs_out = rearrange_images(imgs_out, num_domains=1) # gt rendering
         images_gt.append(imgs_out)
         with torch.autocast("cuda"):
             # B*Nv images
             for guidance_scale in cfg.validation_guidance_scales:
-                out = pipeline(
-                    imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
-                ).images
-                shape = out.shape
+            #     out = pipeline(
+            #         imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
+            #     ).images
+            #     shape = out.shape
                 
-                # ###### old ######
-                # out0, out1 = out[:shape[0]//2], out[shape[0]//2:] # 2 -> 5
-                # out = []
-                # for ii in range(shape[0]//2): # 
-                #     out.append(out0[ii])
-                #     out.append(out1[ii])
-                # out = torch.stack(out, dim=0)
+            #     # ###### old ######
+            #     # out0, out1 = out[:shape[0]//2], out[shape[0]//2:] # 2 -> 5
+            #     # out = []
+            #     # for ii in range(shape[0]//2): # 
+            #     #     out.append(out0[ii])
+            #     #     out.append(out1[ii])
+            #     # out = torch.stack(out, dim=0)
                 
-                ###### new ######
-                # st()
+            #     ###### new ######
+            #     # st()
                
-                out_chunks = torch.chunk(out, num_domains, dim=0)
-                out = []
-                for ii in range(shape[0]//num_domains): 
-                    # out.append(out0[ii])
-                    # out.append(out1[ii])
-                    for _out_i in out_chunks:
-                        out.append(_out_i[ii])  
-                out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
+            #     out_chunks = torch.chunk(out, num_domains, dim=0)
+            #     out = []
+            #     for ii in range(shape[0]//num_domains): 
+            #         # out.append(out0[ii])
+            #         # out.append(out1[ii])
+            #         for _out_i in out_chunks:
+            #             out.append(_out_i[ii])  
+            #     out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
                 
 
-                images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
+            #     images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
                 
 
                 if rendering_loss_2dgs:
                     data = batch
 
-                    splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
+                    # splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
                     
                     batchify = True
-                    if not batchify:
-                        splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
-                        gaussians = reconstruct_gaussians(splatter_data_no_batch)
-                        gaussians = gaussians.to(unet.device)[None]
-                    else:
-                        splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
-                        gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
+                    # if not batchify:
+                    #     splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                    #     gaussians = reconstruct_gaussians(splatter_data_no_batch)
+                    #     gaussians = gaussians.to(unet.device)[None]
+                    # else:
+                    #     splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                    #     gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
                     
                     # assert  gaussians.shape == data["gaussians_gt"].shape
-                    print("gaussians recon from BVD out v5: ", gaussians.shape)
-                   
+                    
+                    gaussians = batch["gaussians_gt"].to(unet.device)
+                    print("using GT gaussians")
+                    # print("gaussians recon from BVD out v5: ", gaussians.shape)
 
                     if not batchify:
                         gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
@@ -262,21 +268,67 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     for k, v in gs_results.items():
                         v = rearrange(v, "B V C H W -> (B V) C H W")
                         gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
+                        # calculate metrics
+                        if calculate_metrics and k == 'image':
+                            # psnr
+                            imgs_out_metric = F.interpolate(imgs_out, size=(128,128), mode='bilinear', align_corners=False)
+                            imgs_out_metric = F.interpolate(imgs_out_metric, size=(256,256), mode='bilinear', align_corners=False)
+                            psnr = -10 * torch.log10(torch.mean((v.detach().cpu() - imgs_out_metric) ** 2))
+                            gs_renderings[f"{k}-metric-psnr{guidance_scale:.1f}"].append(psnr)
+                            print(f"psnr: {psnr}")
+
+                            # ssim
+                            # lpips
+                            loss_lpips = self_lpips_loss(
+                              v.detach().cpu(), imgs_out_metric
+                            ).mean()
+                            gs_renderings[f"{k}-metric-lpips{guidance_scale:.1f}"].append(loss_lpips)
+                            print(f"lpips: {loss_lpips}")
+                            
+          
+                    fancy_video = True
+                    if fancy_video:
+                    # render videos
+                        from kiui.cam import orbit_camera
+                        import imageio
+                        from utils.camera_utils import get_proj_matrix
+                        proj_matrix = get_proj_matrix(batch['fovy'][0].item()).to(unet.device)
                         
-                    # # render videos
-                    # from kiui import orbit_camera
-                    # if cfg.fancy_video:
-                    #     azimuth = np.arange(0, 720, 4, dtype=np.int32)
-                    #     for azi in tqdm(azimuth):
-                    #         cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
-                    #         cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-                    #         # cameras needed by gaussian rasterizer
-                    #         cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
-                    #         cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
-                    #         cam_pos = - cam_poses[:, :3, 3] # [V, 3]
-                    #         scale = min(azi / 360, 1)
-                    #         image = model.gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=scale)['image']
-                    #         images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))(image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+                        images = []
+                        elevation = 0
+                        azimuth = np.arange(0, 720, 6, dtype=np.int32)
+                        cam_radius = dataloader.dataset.cam_radius
+                        for azi in tqdm(azimuth):
+                            cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=cam_radius, opengl=True)).unsqueeze(0).to(unet.device)
+                            cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                            # cameras needed by gaussian rasterizer
+                            cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+                            cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
+                            cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+                            scale = min(azi / 360, 1)
+                            image = gs.render(gaussians, cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=scale)['image']
+                            # print("image shape: ", image.shape)
+                            images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+                        
+                        images = np.concatenate(images, axis=0) # [V, H, W, C]
+                        cond_video = data['imgs_in'][:,0]
+                        cond_video = F.interpolate(cond_video, size=(images.shape[1], images.shape[2]), mode='bilinear', align_corners=False)
+                        cond_video = cond_video.permute(0,2,3,1)
+                        cond_video = cond_video.cpu().numpy().repeat(images.shape[0], 0)
+                        cond_video = (cond_video * 255).astype(np.uint8)
+                        # print("cond_video shape: ", cond_video.shape)
+                        # print("images shape: ", images.shape)
+
+                        assert data['imgs_out'].shape[0] == 1
+                        gt_video = data['imgs_out'][0].permute(0,2,3,1)
+                        if gt_video.shape[0] > 12:
+                            gt_video = gt_video[:12]
+                        gt_video = gt_video.repeat_interleave(6, dim=0).repeat(2,1,1,1).cpu().numpy()
+                        gt_video = (gt_video * 255).astype(np.uint8)
+                        
+                        images = np.concatenate([cond_video, images, gt_video], axis=2)
+                        imageio.mimwrite(os.path.join(save_dir, f"{global_step}-{k}-video_{i}.mp4"), images, fps=30)
+                        print(f"Saved video to {os.path.join(save_dir, f'{global_step}-{k}-video_{i}.mp4')}")
             
                 
     images_cond_all = torch.cat(images_cond, dim=0)
@@ -289,6 +341,8 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     if rendering_loss_2dgs:
         gs_pred_all = {}
         for k, v in gs_renderings.items():
+            if 'metric' in k:
+                continue
             gs_pred_all[k] = torch.cat(v, dim=0)
     
     # for k, v in images_pred_all.items():
@@ -321,6 +375,20 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         for k, v in gs_pred_grid.items():
             # print("gs_pred_grid: ", k, v.shape)
             save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
+        
+        if calculate_metrics:
+            with open(os.path.join(save_dir, f"{global_step}-metrics.txt"), 'w') as f:
+                
+                for k, v in gs_renderings.items():
+                    if 'metric' in k:
+                        
+                        print(f"{k}: {torch.stack(v).mean()}")
+                        print(f"{k}: {torch.stack(v).mean()}", file=f)
+                        for _v in v:
+                            print(_v.item(), file=f)
+                        print("----------------", file=f)
+                f.close()
+                print(f"Saved metrics to {os.path.join(save_dir, f'{global_step}-metrics.txt')}")
         
     torch.cuda.empty_cache()
 
@@ -695,7 +763,8 @@ def main(
         **cfg.train_dataset
     )
     if cfg.validation_dataset.dataset_type == "gso":
-        from mvdiffusion.data.dataset_v5_GSO import GSODataset
+        # from mvdiffusion.data.dataset_v5_GSO import GSODataset
+        from mvdiffusion.data.provider_lara_splatter_optimized_GSO import gobjverse as GSODataset
         validation_dataset = GSODataset(
             **cfg.validation_dataset
         )
@@ -847,8 +916,6 @@ def main(
         print("log validation before training, saved to ", vis_dir)
         st()
 
-    
-    
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
