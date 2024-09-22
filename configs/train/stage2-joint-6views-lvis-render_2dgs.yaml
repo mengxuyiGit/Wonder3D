@@ -1,9 +1,11 @@
 pretrained_model_name_or_path: 'lambdalabs/sd-image-variations-diffusers'
 # modify the unet path; use the stage 1 checkpoint
-pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus/checkpoint-run5-13500'
-pretrained_decoder_path: '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00008-LARA_DATA-sd_decoder-2dgs-GT_normal_loss_foreground-resume8800-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_8000_ckpt/model.safetensors'
+# pretrained_unet_path: '/home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-mix-128-lara-splatter-lmdb-4gpus/checkpoint-run5-13500'
+pretrained_unet_path: 'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/checkpoint-20k'
+# pretrained_decoder_path: '/mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00008-LARA_DATA-sd_decoder-2dgs-GT_normal_loss_foreground-resume8800-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_8000_ckpt/model.safetensors'
+pretrained_decoder_path: null
 revision: null
-rendering_loss_2dgs: true
+rendering_loss_2dgs: false
 train_dataset:
   root_dir: '/mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5'  # change to your path
   object_list: './data_lists/single_obj.json'
@@ -62,16 +64,16 @@ validation_train_dataset:
   render_views: ${train_dataset.render_views}
 
 # output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-BSZ4_acc1_1gpu-DEBUG-2DGS-OVERFIT'
-# output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ8_acc1_gpu2'
-output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable' # todo: add checkpoint folders
+output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-NO_rope_domainXY_ids-all_trainable-BSZ16_acc2_gpu2'
+# output_dir:  'outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable' # todo: add checkpoint folders
 # output_dir:  'outputs/debug/BSZ2_acc1-all_trainable-OVERFIT-DBBUG_zeroSNR'
 
 seed: 42
 train_batch_size: 16 # original paper uses 32
-validation_batch_size: 1 # use 1 for gassian reconstruction ${train_batch_size} # 16
+validation_batch_size: 2 # use 1 for gassian reconstruction ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 20000
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 2
 gradient_checkpointing: true
 learning_rate: 5.e-5
 scale_lr: false
@@ -93,14 +95,14 @@ logging_dir: logs
 mixed_precision: "fp16"
 report_to: 'tensorboard'
 local_rank: -1
-checkpointing_steps: 500
+checkpointing_steps: 2000
 checkpoints_total_limit: null
 last_global_step: 0
 
-resume_from_checkpoint: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable/checkpoint-run2
-# resume_from_checkpoint: latest
+# resume_from_checkpoint: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-ROPE_domainXY_ids-BSZ16_acc2_gpu2-all_trainable/checkpoint-run2
+resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
-validation_steps: 200
+validation_steps: 1000
 validation_sanity_check: true
 tracker_project_name: 'mvdiffusion-image-v1'
 
