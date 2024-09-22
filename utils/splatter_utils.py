@@ -36,7 +36,7 @@ sp_min_max_dict = {
 
 def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu", range_01=True, use_2dgs=True, selected_attr_list=None, return_gassians=False):
     
-    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt"), map_location='cpu').detach().cpu()
+    splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt"), map_location='cpu', weights_only=True).detach().cpu()
         
     # print("\nLoading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]
 
