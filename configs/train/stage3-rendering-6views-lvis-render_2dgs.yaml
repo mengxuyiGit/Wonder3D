@@ -44,9 +44,9 @@ train_dataset:
 #   render_views: 20 # ${train_dataset.render_views}
 #   render_size: ${render_size}
 validation_dataset:
-  # root_dir: ${train_dataset.root_dir}  # change to your path
+  root_dir: ${train_dataset.root_dir}  # change to your path
   # dataset_type: null
-  root_dir: /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
+  # root_dir: /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
   dataset_type: 'gso'
   object_list: './data_lists/single_obj.json'
   invalid_list: './data_lists/lvis_invalid_uids_nineviews.json'
@@ -63,7 +63,7 @@ validation_dataset:
   lmdb_6view_base: ${train_dataset.lmdb_6view_base}
   rendering_loss_2dgs: ${rendering_loss_2dgs} 
   read_first_view_only: false # ${train_dataset.read_first_view_only}
-  render_views: 20 # ${train_dataset.render_views}
+  render_views: 10 # ${train_dataset.render_views}
   render_size: ${render_size}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}  # change to your path
@@ -94,8 +94,8 @@ validation_train_dataset:
 output_dir:  'outputs/debug/GSO' # todo: add checkpoint folders
 
 seed: 42
-train_batch_size: 2 # original paper uses 32
-validation_batch_size: 2 # use 1 for gassian reconstruction ${train_batch_size} # 16
+train_batch_size: 1 # original paper uses 32
+validation_batch_size: 1 # use 1 for gassian reconstruction ${train_batch_size} # 16
 validation_train_batch_size: 16
 max_train_steps: 20000
 gradient_accumulation_steps: 1
@@ -148,8 +148,8 @@ pipe_kwargs:
   camera_embedding_type: 'e_de_da_sincos'
   num_views: 6
 
-validation_guidance_scales: [1., 3., 5., 7., 9.]
-# validation_guidance_scales: [3.0]
+# validation_guidance_scales: [1., 3., 5., 7., 9.]
+validation_guidance_scales: [3.0]
 pipe_validation_kwargs:
   eta: 1.0
 validation_grid_nrow: 10
