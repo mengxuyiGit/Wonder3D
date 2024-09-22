@@ -642,8 +642,8 @@ class CustomJointAttention(Attention):
     def set_use_memory_efficient_attention_xformers(
         self, use_memory_efficient_attention_xformers: bool, *args, **kwargs
     ):
-        # processor = XFormersJointAttnProcessor()
-        processor = XFormersJointAttnProcessorROPE()
+        processor = XFormersJointAttnProcessor()
+        # processor = XFormersJointAttnProcessorROPE()
         self.set_processor(processor)
         # print("using xformers attention processor")
 
@@ -846,7 +846,6 @@ class XFormersJointAttnProcessorROPE:
         temb=None,
         num_tasks=5
     ):
-        
         residual = hidden_states
 
         if attn.spatial_norm is not None:
@@ -926,7 +925,7 @@ class XFormersJointAttnProcessorROPE:
 
         ##### positional encoding (ROPE) #####
         if self.axes_dim:
-            # print('using ROPE: ', query.size(), key.size())
+            print('using ROPE: ', query.size(), key.size())
             ids_q = get_rope_ids(query, "query")
             ids_k = get_rope_ids(key, "key")
             
@@ -973,6 +972,7 @@ class XFormersJointAttnProcessor:
         num_tasks=5
     ):
         
+        # print("NOT using ROPE")
         residual = hidden_states
 
         if attn.spatial_norm is not None:
