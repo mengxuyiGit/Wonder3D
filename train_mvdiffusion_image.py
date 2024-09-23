@@ -43,10 +43,8 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 # from mvdiffusion.data.dataset_nc import MVDiffusionDatasetV2 as MVDiffusionDataset
 # from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
 # from mvdiffusion.data.lvis_dataset import ObjaverseDataset as MVDiffusionDataset
-# from mvdiffusion.data.provider_lara import gobjverse as MVDiffusionDataset
-# from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
-from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
-# from mvdiffusion.data.provider_lara_splatter_overfit import gobjverse as MVDiffusionDataset
+# from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
+# from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
@@ -377,6 +375,11 @@ def main(
         num_warmup_steps=cfg.lr_warmup_steps * accelerator.num_processes,
         num_training_steps=cfg.max_train_steps * accelerator.num_processes,
     )
+
+    if cfg.train_dataset.dataset_type == 'lvis':
+        from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
+    else:
+        from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
 
     # Get the training dataset
     train_dataset = MVDiffusionDataset(

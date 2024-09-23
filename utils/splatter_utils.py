@@ -2,6 +2,7 @@ import torch
 import os
 import einops
 from pytorch3d.transforms import quaternion_to_axis_angle, axis_angle_to_quaternion
+import kiui
 
 # process the loaded splatters into 3-channel images
 gt_attr_keys = ['pos', 'opacity', 'scale', 'rotation', 'rgbs']
@@ -19,6 +20,7 @@ ordered_attr_list = ["pos", # 0-3
 
 sp_min_max_dict = {
     "pos": (-0.7, 0.7), 
+    "opacity": (-14., 9.),
     "scale": (-10., -2.),
     "rotation": (-5., 5.) #  (-6., 6.)
     }
@@ -60,6 +62,13 @@ def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu", range_01=True, use_
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
         elif attr_to_encode == "opacity":
+            # print("opacity", sp_image.min(), sp_image.max(), sp_image.mean())
+            sp_image = kiui.op.inverse_sigmoid(sp_image)
+            # print("opacity [inverse]", sp_image.min(), sp_image.max(), sp_image.mean())
+            sp_min, sp_max = sp_min_max_dict[attr_to_encode]
+            sp_image =( sp_image - sp_min) / (sp_max - sp_min)
+            # print("opacity [inverse] [normalized]", sp_image.min(), sp_image.max(), sp_image.mean())
+       
             sp_image = sp_image.repeat(3,1,1)
         elif attr_to_encode == "scale":
             sp_image = torch.log(sp_image)
@@ -122,6 +131,7 @@ def load_splatter_mv_ply_as_dict_debug(splatter_dir, device="cpu", range_01=True
             sp_image = (sp_image - sp_min)/(sp_max - sp_min)
         elif attr_to_encode == "opacity":
             sp_image = sp_image.repeat(3,1,1)
+            from ipdb import set_trace as st; st() # debug: use normalization
         elif attr_to_encode == "scale":
             sp_image = torch.log(sp_image)
             sp_min, sp_max = sp_min_max_dict[attr_to_encode]
@@ -229,6 +239,13 @@ def denormalize_and_activate(attr, mv_image): # batchified
         sp_image_o = torch.exp(sp_image_o)
     elif attr == "opacity":
         sp_image_o = torch.mean(sp_image_o, dim=1, keepdim=True) # avg.
+            
+        # denormalize
+        sp_min, sp_max = sp_min_max_dict["opacity"]
+        sp_image = sp_image *((sp_max - sp_min)) + sp_min
+        sp_image = torch.sigmoid(sp_image)
+        print("opacity [denormalized]", sp_image.min(), sp_image.max(), sp_image.mean())
+            
     elif attr == "rotation": 
         # sp_image_o = sp_image_o.clip(0,1) 
         sp_min, sp_max = sp_min_max_dict["rotation"]

@@ -1,0 +1,121 @@
+pretrained_model_name_or_path: lambdalabs/sd-image-variations-diffusers
+revision: null
+train_dataset:
+  root_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5
+  object_list: ./data_lists/single_obj.json
+  invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
+  num_views: 6
+  groups_num: 1
+  bg_color: three_choices
+  img_wh:
+  - 128
+  - 128
+  validation: false
+  num_validation_samples: 32
+  mix_color_normal: true
+  read_mask: false
+  overfit: false
+  read_first_view_only: true
+  lmdb_6view_base: null
+  # /mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database
+  dataset_type: lvis
+validation_dataset:
+  root_dir: ${train_dataset.root_dir}
+  object_list: ./data_lists/single_obj.json
+  invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
+  num_views: 6
+  groups_num: 1
+  bg_color: white
+  img_wh: ${train_dataset.img_wh}
+  validation: true
+  num_validation_samples: 32
+  mix_color_normal: true
+  read_mask: false
+  overfit: ${train_dataset.overfit}
+  read_first_view_only: ${train_dataset.read_first_view_only}
+  lmdb_6view_base: ${train_dataset.lmdb_6view_base}
+  dataset_type: ${train_dataset.dataset_type}
+validation_train_dataset:
+  root_dir: ${train_dataset.root_dir}
+  object_list: ./data_lists/single_obj.json
+  invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
+  num_views: 6
+  groups_num: 1
+  bg_color: white
+  img_wh: ${train_dataset.img_wh}
+  validation: false
+  num_validation_samples: 32
+  num_samples: 32
+  mix_color_normal: true
+  read_mask: false
+  overfit: ${train_dataset.overfit}
+  read_first_view_only: ${train_dataset.read_first_view_only}
+  lmdb_6view_base: ${train_dataset.lmdb_6view_base}
+  dataset_type: ${train_dataset.dataset_type}
+output_dir: outputs/splatter/3DGS/wonder3D-mix-128-LVIS-splatter-4gpus-bsz64
+seed: 42
+train_batch_size: 8
+validation_batch_size: 16 # ${train_batch_size}
+validation_train_batch_size: 16
+max_train_steps: 30000
+gradient_accumulation_steps: 2
+gradient_checkpointing: false
+learning_rate: 0.0001
+scale_lr: false
+lr_scheduler: constant_with_warmup
+lr_warmup_steps: 100
+snr_gamma: 5.0
+use_8bit_adam: false
+allow_tf32: true
+use_ema: true
+dataloader_num_workers: 4
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_weight_decay: 0.01
+adam_epsilon: 1.0e-08
+max_grad_norm: 1.0
+prediction_type: null
+logging_dir: logs
+vis_dir: vis
+mixed_precision: fp16
+report_to: tensorboard
+local_rank: 0
+checkpointing_steps: 500
+checkpoints_total_limit: 20
+resume_from_checkpoint: latest
+enable_xformers_memory_efficient_attention: true
+validation_steps: 250
+validation_sanity_check: true
+tracker_project_name: mvdiffusion-image-v1
+trainable_modules: null
+use_classifier_free_guidance: true
+condition_drop_rate: 0.05
+scale_input_latents: true
+pipe_kwargs:
+  camera_embedding_type: e_de_da_sincos
+  num_views: 6
+pipe_validation_kwargs:
+  eta: 1.0
+unet_from_pretrained_kwargs:
+  camera_embedding_type: e_de_da_sincos
+  projection_class_embeddings_input_dim: 16
+  num_views: 6
+  sample_size: 16
+  zero_init_conv_in: true
+  zero_init_camera_projection: false
+  cd_attention_last: false
+  cd_attention_mid: false
+  multiview_attention: true
+  sparse_mv_attention: false
+  mvcd_attention: false
+  # low_cpu_mem_usage: false # debug 
+  # zero_init_conv_in: false # debug 
+validation_guidance_scales:
+- 1.0
+- 3.0
+validation_grid_nrow: 12
+camera_embedding_lr_mult: 10.0
+num_views: 6
+camera_embedding_type: e_de_da_sincos
+pred_type: mix
+drop_type: drop_as_a_whole
