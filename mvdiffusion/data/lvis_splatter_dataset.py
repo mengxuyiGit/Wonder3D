@@ -107,6 +107,13 @@ class ObjaverseDataset(Dataset):
         else:
             invalid_objects = []
         
+        valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        if valid_list is not None:
+            print(f"ALSO Filter valid objects by {valid_list}")
+            with open(valid_list) as f:
+                valid_objects = json.load(f)
+      
+      
         self.data_path_rendering = {}
         self.data_path_vae_splatter = {}
         
@@ -135,8 +142,15 @@ class ObjaverseDataset(Dataset):
             if not os.path.exists(os.path.join(scene_path, "splatters_mv.pt")):
                 continue
             
-            self.data_path_vae_splatter[scene_name] = scene_path
+            
+            rendering_path = os.path.join(scene_range, scene_name.split("_")[-1])
+            if valid_list is not None and rendering_path not in valid_objects:
+                # print(f"{rendering_path} is not in valid list")
+                continue
+            
+            # pass all checks
             self.data_path_rendering[scene_name] = os.path.join(self.root_dir, scene_range, scene_name.split("_")[-1])
+            self.data_path_vae_splatter[scene_name] = scene_path
                
         assert len(self.data_path_vae_splatter) == len(self.data_path_rendering)
         print("number of scenes in  dataset:", len(self.data_path_vae_splatter))
