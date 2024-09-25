@@ -538,7 +538,13 @@ def main(
                 imgs_in, imgs_out, camera_embeddings = imgs_in.to(weight_dtype), imgs_out.to(weight_dtype), camera_embeddings.to(weight_dtype)
 
                 # (B*Nv, 4, Hl, Wl)
-                cond_vae_embeddings = vae.encode(imgs_in * 2.0 - 1.0).latent_dist.mode()
+                downsample_vae = True
+                if downsample_vae:
+                    imgs_in_vae = F.interpolate(imgs_in, size=imgs_out.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
+                    cond_vae_embeddings = vae.encode(imgs_in_vae * 2.0 - 1.0).latent_dist.mode()
+                else:
+                    cond_vae_embeddings = vae.encode(imgs_in * 2.0 - 1.0).latent_dist.mode()
+                    
                 if cfg.scale_input_latents:
                     cond_vae_embeddings = cond_vae_embeddings * vae.config.scaling_factor
                 latents = vae.encode(imgs_out * 2.0 - 1.0).latent_dist.sample() * vae.config.scaling_factor

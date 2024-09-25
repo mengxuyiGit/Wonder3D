@@ -18,6 +18,7 @@ from typing import Callable, List, Optional, Union
 
 import PIL
 import torch
+import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 from packaging import version
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
@@ -182,7 +183,13 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
     def _encode_image(self, image_pil, device, num_images_per_prompt, do_classifier_free_guidance):
         dtype = next(self.image_encoder.parameters()).dtype
 
-        image_pt = self.feature_extractor(images=image_pil, return_tensors="pt").pixel_values
+        high_res_CLIP = False
+        if high_res_CLIP:
+            print("high_res_CLIP")
+            image_pil_high_res = [TF.resize(img, [512, 512]) for img in image_pil]
+            image_pt = self.feature_extractor(images=image_pil_high_res, return_tensors="pt").pixel_values
+        else:
+            image_pt = self.feature_extractor(images=image_pil, return_tensors="pt").pixel_values
         image_pt = image_pt.to(device=device, dtype=dtype)
         image_embeddings = self.image_encoder(image_pt).image_embeds
         image_embeddings = image_embeddings.unsqueeze(1)
@@ -203,6 +210,13 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         
         image_pt = torch.stack([TF.to_tensor(img) for img in image_pil], dim=0).to(device).to(dtype)
         image_pt = image_pt * 2.0 - 1.0
+
+        downsample_vae = True
+        if downsample_vae:
+            image_pt = F.interpolate(image_pt, size=(128, 128), mode='bilinear', align_corners=False, antialias=True)        
+            # print("[___pipe__] downsample_vae image_pt:", image_pt.shape)
+        else:
+            print("[___pipe__] NO downsample vae image_pt:", image_pt.shape)
         image_latents = self.vae.encode(image_pt).latent_dist.mode() * self.vae.config.scaling_factor
         # Note: repeat differently from official pipelines
         # B1B2B3B4 -> B1B2B3B4B1B2B3B4        
@@ -504,6 +518,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             image_pil = image
         elif isinstance(image, torch.Tensor):
             image_pil = [TF.to_pil_image(image[i]) for i in range(image.shape[0])]
+            
         image_embeddings, image_latents = self._encode_image(image_pil, device, num_images_per_prompt, do_classifier_free_guidance)
 
         if normal_cond is not None:
