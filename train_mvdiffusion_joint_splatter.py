@@ -43,7 +43,9 @@ from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 # from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara_splatter_no_h5 import gobjverse as MVDiffusionDataset
 # from mvdiffusion.data.provider_lara_splatter import gobjverse as MVDiffusionDataset
-from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
+# from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
+# from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
+
 from utils.splatter_utils import gt_attr_keys, reconstruct_gaussians, reconstruct_gaussians_batch
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
@@ -168,6 +170,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     num_domains = 5
     
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
+    images_gt_rendering = []
     for i, batch in enumerate(dataloader):
         # (B, Nv, 3, H, W)
         # imgs_in, colors_out, normals_out = batch['imgs_in'], batch['imgs_out'], batch['normals_out']
@@ -178,7 +181,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         # TODO: cat all splatter attributes
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
         imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
-        
+        imgs_out_rendering = batch['imgs_out']
         
         # (2B, Nv, Nce)
         camera_embeddings = torch.cat([batch['camera_embeddings']]*num_domains, dim=0)
@@ -191,12 +194,14 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
 
         # (B*Nv, 3, H, W)
         imgs_in, imgs_out = rearrange(imgs_in, "B Nv C H W -> (B Nv) C H W"), rearrange(imgs_out, "B Nv C H W -> (B Nv) C H W")
+        imgs_out_rendering = rearrange(imgs_out_rendering, "B Nv C H W -> (B Nv) C H W")
         # (B*Nv, Nce)
         camera_task_embeddings = rearrange(camera_task_embeddings, "B Nv Nce -> (B Nv) Nce")
 
         images_cond.append(imgs_in)
         imgs_out = rearrange_images(imgs_out)
         images_gt.append(imgs_out)
+        images_gt_rendering.append(imgs_out_rendering)
         with torch.autocast("cuda"):
             # B*Nv images
             for guidance_scale in cfg.validation_guidance_scales:
@@ -260,12 +265,15 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         gs_results = gs_results_batch
                         
                     for k, v in gs_results.items():
+                        if 'dist' in k or 'depth' in k:
+                            continue
                         v = rearrange(v, "B V C H W -> (B V) C H W")
                         gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
                 
                 
     images_cond_all = torch.cat(images_cond, dim=0)
     images_gt_all = torch.cat(images_gt, dim=0)
+    images_gt_rendering_all = torch.cat(images_gt_rendering, dim=0)
          
     images_pred_all = {}
     for k, v in images_pred.items():
@@ -285,21 +293,26 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     ncol = images_cond_all.shape[0] // nrow
     images_cond_grid = make_grid(images_cond_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
     images_gt_grid = make_grid(images_gt_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+    images_gt_rendering_grid = make_grid(images_gt_rendering_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
     images_pred_grid = {}
     for k, v in images_pred_all.items():
         images_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
     save_image(images_cond_grid, os.path.join(save_dir, f"{global_step}-{name}-cond.jpg"))
     save_image(images_gt_grid, os.path.join(save_dir, f"{global_step}-{name}-gt.jpg"))
+    save_image(images_gt_rendering_grid, os.path.join(save_dir, f"{global_step}-{name}-gt-rendering.jpg"))
     for k, v in images_pred_grid.items():
         save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
     
     if rendering_loss_2dgs:
-         # to do 
+        # to do 
         #   1. rotate normals
         #   2. save gt normals
         gs_pred_grid = {}
         for k, v in gs_pred_all.items():
-            gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
+            if '_normal' in k:
+                gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, normalize=True, value_range=(-1, 1))
+            else:
+                gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
         for k, v in gs_pred_grid.items():
             # print("gs_pred_grid: ", k, v.shape)
             save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
@@ -474,7 +487,7 @@ def main(
         for name, module in unet.named_modules():
             if name.endswith(tuple(cfg.trainable_modules)):
                 for params in module.parameters():
-                    print("trainable: ", params)
+                    print("trainable: ", name, params.shape)
                     params.requires_grad = True                
 
     if cfg.enable_xformers_memory_efficient_attention:
@@ -573,6 +586,13 @@ def main(
         num_warmup_steps=cfg.lr_warmup_steps * accelerator.num_processes,
         num_training_steps=cfg.max_train_steps * accelerator.num_processes,
     )
+
+    if cfg.train_dataset.dataset_type == 'lvis':
+        from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
+    elif cfg.train_dataset.dataset_type == 'lara':
+        from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
+    else:
+        raise ValueError(f"Unknown dataset type: {cfg.train_dataset.dataset_type}")
 
     # Get the training dataset
     train_dataset = MVDiffusionDataset(
@@ -703,6 +723,25 @@ def main(
             first_epoch = global_step // num_update_steps_per_epoch
             resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
+   
+    ## add a log validation right before training, without any gradient updates
+    if accelerator.is_main_process:
+        log_validation(
+            validation_dataloader,
+            vae,
+            feature_extractor,
+            image_encoder,
+            unet,
+            cfg,
+            accelerator,
+            weight_dtype,
+            'init',
+            'validation',
+            vis_dir
+        )
+        print("log validation before training, saved to ", vis_dir)
+        # st()
+        
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
@@ -759,8 +798,14 @@ def main(
                 imgs_in, imgs_out, camera_task_embeddings = imgs_in.to(weight_dtype), imgs_out.to(weight_dtype), camera_task_embeddings.to(weight_dtype)
 
                 # (B*Nv, 4, Hl, Wl)
-                # pdb.set_trace()
-                cond_vae_embeddings = vae.encode(imgs_in * 2.0 - 1.0).latent_dist.mode()
+                downsample_vae = True
+                if downsample_vae:
+                    imgs_in_vae = F.interpolate(imgs_in, size=imgs_out.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
+                    cond_vae_embeddings = vae.encode(imgs_in_vae * 2.0 - 1.0).latent_dist.mode()
+                else:
+                    cond_vae_embeddings = vae.encode(imgs_in * 2.0 - 1.0).latent_dist.mode()
+                
+                
                 if cfg.scale_input_latents:
                     cond_vae_embeddings = cond_vae_embeddings * vae.config.scaling_factor
                 latents = vae.encode(imgs_out * 2.0 - 1.0).latent_dist.sample() * vae.config.scaling_factor
@@ -783,6 +828,10 @@ def main(
                 # same noise for different views of the same object
                 if cfg.sync_domain_timesteps:
                     timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // (cfg.num_views * num_domains),), device=latents.device).repeat_interleave(cfg.num_views).repeat(num_domains)
+                    # with some offset
+                    timesteps_offset = torch.randint(-100, 100, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
+                    timesteps = (timesteps + timesteps_offset).clip(0, noise_scheduler.num_train_timesteps-1)
+                    
                 else: # original wonder3d: different timesteps for different domains
                     timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
                 timesteps = timesteps.long()                

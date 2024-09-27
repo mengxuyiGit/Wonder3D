@@ -74,7 +74,8 @@ class ObjaverseDataset(Dataset):
         self.img_wh = img_wh
         self.num_cond = 1
         self.items = []
-        self.root_dir = '/mnt/lingjie_cache/lvis_dataset/testing'
+        # self.root_dir = '/mnt/lingjie_cache/lvis_dataset/testing'
+        self.root_dir = '/home/chenwang/data/lvis_dataset/testing'
         # self.data_path_vae_splatter = '/mnt/lingjie_cache/lvis_splatters/testing'
         self.data_path_vae_splatter = "/mnt/kostas-graid/datasets/xuyimeng/lvis/splatter_data_2dgs/testing"
         self.use_2dgs = splatter_mode == "2dgs"
@@ -93,7 +94,7 @@ class ObjaverseDataset(Dataset):
         # paths = json.load(open(os.path.join(self.root_dir, 'valid_paths.json'), 'r'))
         # self.items = [os.path.join(self.root_dir, path) for path in paths]
 
-        excluded_splits = ["40000-49999"] # used for test
+        excluded_splits = [] # used for test
         included_splits = [split for split in os.listdir(self.root_dir) if split not in excluded_splits]
         # scene_path_patterns = [os.path.join(self.root_dir, split, "*") for split in included_splits]
         scene_path_patterns = [os.path.join(self.data_path_vae_splatter, split, "*", "splatters_mv_inference", "*") for split in included_splits]
@@ -112,7 +113,8 @@ class ObjaverseDataset(Dataset):
         else:
             invalid_objects = []
         
-        valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        # valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        valid_list = f'{self.root_dir}/valid_paths.json'
         if valid_list is not None:
             print(f"ALSO Filter valid objects by {valid_list}")
             with open(valid_list) as f:
@@ -349,7 +351,8 @@ class ObjaverseDataset(Dataset):
         cam_poses = []
       
         if self.read_first_view_only:
-            assert NotImplementedError, "check the camera embedding elevations"
+            # assert NotImplementedError, "check the camera embedding elevations"
+            assert self.training, "only training of __joint__ is supported for read_first_view_only"
             vids = [0]
         else:
             vids = [0] + np.arange(1, 7).tolist() + np.random.permutation(np.arange(1, 50 + 6)).tolist()[:self.render_views-7]
@@ -360,7 +363,7 @@ class ObjaverseDataset(Dataset):
             camera_path = os.path.join(renderings_path, f'{vid:03d}.npy')
 
             image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 # [512, 512, 4] in [0, 1]
-            print("image", image.shape)
+            # print("image", image.shape)
             image = torch.from_numpy(image)
 
             cam = np.load(camera_path, allow_pickle=True).item()
@@ -388,15 +391,16 @@ class ObjaverseDataset(Dataset):
         masks = torch.stack(masks, dim=0) # [V, H, W]
         cam_poses = torch.stack(cam_poses, dim=0) # [V, 4, 4]
 
-        # normalized camera feats as in paper (transform the first pose to a fixed position)
-        radius = torch.norm(cam_poses[0, :3, 3])
-        cam_poses[:, :3, 3] *= self.cam_radius / radius
-        # print("normalize to camera 1")
-        transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[1])
-        cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
-        # opengl to colmap camera for gaussian renderer
-        cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-        results['cam_poses'] = cam_poses # [V, 4, 4]
+        if not self.read_first_view_only:
+            # normalized camera feats as in paper (transform the first pose to a fixed position)
+            radius = torch.norm(cam_poses[0, :3, 3])
+            cam_poses[:, :3, 3] *= self.cam_radius / radius
+            # print("normalize to camera 1")
+            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[1])
+            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+            # opengl to colmap camera for gaussian renderer
+            cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+            results['cam_poses'] = cam_poses # [V, 4, 4]
 
         # resize render ground-truth images, range still in [0, 1]
         # results['imgs_out'] = F.interpolate(images, size=(self.render_size[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
@@ -406,7 +410,7 @@ class ObjaverseDataset(Dataset):
         results['imgs_out'] = F.interpolate(images, size=(self.render_size[0], self.render_size[1]), mode='bilinear', align_corners=False, antialias=True) # [V, C, output_size, output_size]
 
         
-        results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
+        # results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False, antialias=True) # [V, 1, output_size, output_size]
         results['scene_name'] = uid
         
         results['fovy'] = cam['fov']
@@ -437,7 +441,7 @@ class ObjaverseDataset(Dataset):
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
 
         if self.read_first_view_only:
-            print("read_first_view_only")
+            # print("read_first_view_only")
             camera_embeddings = torch.stack([elevations_cond, torch.tensor([30, -20]*3).to(elevations_cond.dtype), torch.tensor([30,90,150,210,270,330]).to(elevations_cond.dtype)], dim=-1) # (Nv, 3)
         else:
             elevations = torch.as_tensor(elevations[1:(self.num_views+1)]).float()
@@ -449,7 +453,7 @@ class ObjaverseDataset(Dataset):
             camera_embeddings = torch.stack([elevations_cond, elevations-elevations_cond, (azimuths-azimuths_cond+360)%360], dim=-1) # (Nv, 3)
         
         results['camera_embeddings'] = camera_embeddings
-        print("camera_embeddings (__joint__)", camera_embeddings)
+        # print("camera_embeddings (__joint__)", camera_embeddings)
 
         return results
 
