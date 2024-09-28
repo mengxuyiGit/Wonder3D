@@ -16,10 +16,13 @@ from typing import Literal, Tuple, Optional, Any, Dict
 
 import lmdb
 import pickle
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 from utils.splatter_utils import load_splatter_mv_ply_as_dict, gt_attr_keys
 from utils.camera_utils import fov_to_ixt, get_proj_matrix
+
+from PIL import  Image
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
@@ -86,6 +89,7 @@ class gobjverse(torch.utils.data.Dataset):
         render_views: int = 10,
         render_size: int = 256,
         dataset_type: str = "lara",
+        splatter_mode: str = "2dgs",
         ):
         super(gobjverse, self).__init__()
 
@@ -141,14 +145,20 @@ class gobjverse(torch.utils.data.Dataset):
             
         # splatter mv data
         self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
+        # self.splatter_root = "/home/xuyimeng/Repo/zero-1-to-G/runs/lara/workspace_debug/20240928-072650-load_GObj-finetuned_epoch1-fovy=39.6-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference"
+        print("Splatter root", self.splatter_root)
+        # st()
         
         ##################### LMDB CREATION ##################################################
         coverage = "overfit" if overfit else "whole"
+        # coverage = "debug_high_quality"
         DATASET_BASE = '/mnt/kostas-graid/datasets/' # "/mnt/lingjie_cache/"
+        # DATASET_BASE = "/mnt/lingjie_cache/"
         self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
+        # self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_NOT_NORM_CAM_splatter_{self.split}_{coverage}.lmdb'
         create_lmdb = False
         self.lmdbFiles = None
-        
+
         if True: # create lmdb
             if not os.path.exists(self.lmdb_path):
                 create_lmdb = True
@@ -164,7 +174,7 @@ class gobjverse(torch.utils.data.Dataset):
                         create_lmdb = (num_keys < 1)
                         print("Overfitting, 0 keys. Creation is needed.") if create_lmdb else print("Overfitting, 1 key is enough.")
                     else:
-                        desired_num_keys = 200000 if self.split == 'train' else len(self.scenes_name)
+                        desired_num_keys = 100000 if self.split == 'train' else len(self.scenes_name)
                         create_lmdb = (num_keys < desired_num_keys)
                         print(f"Number of keys in {self.split} split is less than {len(self.scenes_name)}. Creation is needed.") if create_lmdb else print(f"Number of keys in {self.split} split is enough: {num_keys}")
                         
@@ -214,9 +224,50 @@ class gobjverse(torch.utils.data.Dataset):
     def create_lmdb_database(self):
         print(f"Creating LMDB database: {self.lmdb_path}...")
         env = lmdb.open(self.lmdb_path, map_size=1099511627776)  # 1 TB map size
+
+        # filter by invalid list, valid list, and annotation list
+        annotation_file = "/mnt/kostas-graid/datasets/xuyimeng/category_annotation.json"
+        with open(annotation_file, "r") as f:
+            anno = json.load(f)
+            # {'Human-Shape', 'Furnitures', 'Animals', 'Plants', 'Daily-Used', 'Poor-quality', 'Electronics', 'Transportations', 'Buildings&&Outdoor', 'Food'}
+        poor_quality_list = []
+        for obj in anno:
+            if obj['label'] == 'Poor-quality':
+                poor_quality_list.append(obj['object_index'].replace(".glb", ""))
+        print("Poor-quality:", len(poor_quality_list))
+       
+        # invalid list 
+            # remove invalid uids
+        invalid_list = '/mnt/kostas_home/lilym/LGM/LGM/data_lists/lvis_invalid_uids_nineviews.json'
+        if invalid_list is not None:
+            print(f"Filter invalid objects by {invalid_list}")
+            with open(invalid_list) as f:
+                invalid_objects = json.load(f)
+            invalid_objects = [os.path.basename(o).replace(".glb", "") for o in invalid_objects]
+        else:
+            invalid_objects = []
+        
+        # valid_list = '/mnt/lingjie_cache/lvis_dataset/testing/valid_paths.json'
+        # if valid_list is not None:
+        #     print(f"ALSO Filter valid objects by {valid_list}")
+        #     with open(valid_list) as f:
+        #         valid_objects = json.load(f)
         
         def check_scene(scene_path):
             scene_name = scene_path.split('/')[-1].split('_')[-1]
+            print(scene_name) 
+            if scene_name in poor_quality_list:
+                print(f"[Poor-quality] {scene_name}")
+                return None
+            
+            if scene_name in invalid_objects:
+                print(f"[Invalid] {scene_name}")
+                return None
+            
+            # if valid_list is not None and scene_name not in valid_objects:
+            #     print(f"[Not in valid list] {scene_name}")
+            #     return None
+                
             if scene_name not in self.scenes_name:
                 return None
             if not os.path.isdir(scene_path) or not os.path.exists(os.path.join(scene_path, "splatters_mv.pt")):
@@ -225,6 +276,8 @@ class gobjverse(torch.utils.data.Dataset):
 
         pattern = f"{self.splatter_root}/*"
         all_scene_paths = sorted(glob.glob(pattern))
+        print("Number of scenes [initial]", len(all_scene_paths))
+        # st()
 
         final_scenes_name = []
         with ThreadPoolExecutor() as executor:
@@ -253,8 +306,8 @@ class gobjverse(torch.utils.data.Dataset):
             cursor = txn.cursor()
             for key, value in cursor:
                 # if self.scenes_name.get(key.decode('utf-8')) is not None:
-                if np.any(self.scenes_name == key.decode('utf-8')):
-                    final_scenes_name.append(key.decode('utf-8'))  # Decode the key if necessary
+                # if np.any(self.scenes_name == key.decode('utf-8')):
+                final_scenes_name.append(key.decode('utf-8'))  # Decode the key if necessary
         if self.overfit:
             final_scenes_name = final_scenes_name*len(self.scenes_name)
         self.scenes_name = final_scenes_name
@@ -334,6 +387,8 @@ class gobjverse(torch.utils.data.Dataset):
         # else:
         selected_attr = random.choice(gt_attr_keys)
         # selected_attr = 'rgbs'
+
+        # splatter_uid = "/mnt/kostas-graid/datasets/xuyimeng/lvis/splatter_data_2dgs/0/20240924-043723-lvis_2dgs-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_00dfee50afad4153880d3a04d9a040aa"
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
         normal_final = splatter_original_Channel_mvimage_dict[selected_attr]
         normal_final = einops.rearrange(normal_final, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
@@ -451,10 +506,15 @@ class gobjverse(torch.utils.data.Dataset):
             
             # normalized camera feats as in paper (transform the first pose to a fixed position)
             radius = torch.norm(cam_poses[0, :3, 3])
-            print("radius", radius)
+            # print("radius", radius)
             cam_poses[:, :3, 3] *= self.cam_radius / radius
-            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
-            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+
+            normalize_campose = True
+            if normalize_campose:
+                transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
+                cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+            else:
+                transform = torch.eye(4)
             # opengl to colmap camera for gaussian renderer
             cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
             results['cam_poses'] = cam_poses # [V, 4, 4]
@@ -500,6 +560,15 @@ class gobjverse(torch.utils.data.Dataset):
         
         # read splatter attriubtes
         splatter_uid = self.lmdbFiles.get_data(scene_name)
+
+        # splatter_uid = '/home/xuyimeng/Repo/zero-1-to-G/runs/gso/workspace_gso/20240928-045636-GSO_2dgs-cam1.0-wild-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_11pro_SL_TRX_FG'
+        # wild_path = '/home/xuyimeng/Repo/InstantMesh/outputs/sep_21/instant-mesh-base-v11_sep_21/gso/liuyuan/fov39.6-cam1.3-ele0-12views/images/examples_InstantMesh-geco_cond.png'
+        # print("loading in the wild image", wild_path)
+        # wild_image = torch.tensor(np.array(Image.open(wild_path))) / 255.0
+        # if wild_image.shape[-1] == 4:
+        #     wild_image = wild_image[..., :3] + (1 - wild_image[..., -1:]) * 1
+        # results['imgs_in'] = F.interpolate(wild_image.unsqueeze(0).permute(0,3,1,2), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+           
         
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs) # [-1,1]
 
@@ -563,7 +632,7 @@ class gobjverse(torch.utils.data.Dataset):
             results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*self.num_views, dim=0)
 
 
-        # results['scene_name'] = scene_name #uid.split('/')[-1]
+        results['scene_name'] = scene_name #uid.split('/')[-1]
         # results['splatter_uid'] = splatter_uid
       
         return results

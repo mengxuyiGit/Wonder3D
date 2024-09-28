@@ -139,12 +139,18 @@ class TrainingConfig:
     rendering_loss_2dgs: bool
     zero_terminal_snr: bool
     sync_domain_timesteps: bool
+    ckpt_training_data: str
     fovy: float
 
-from train_mvdiffusion_joint_splatter_inference import log_validation as log_validation_inference
 
 def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg: TrainingConfig, accelerator, weight_dtype, global_step, name, save_dir):
     logger.info(f"Running {name} ... ")
+
+    with open(os.path.join(save_dir, f"{global_step}-{name}-scene_names.txt"), 'a') as f:
+        # write datetime and boundary line
+        f.write(f"\n\n========================================\n")
+        f.write(f"{datetime.datetime.now()}\n")
+        f.write(f"========================================\n")
 
     pipeline = MVDiffusionImagePipeline(
         image_encoder=image_encoder, feature_extractor=feature_extractor, vae=vae, unet=accelerator.unwrap_model(unet), safety_checker=None,
@@ -164,15 +170,15 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         
     
     rendering_loss_2dgs = cfg.rendering_loss_2dgs
-    if rendering_loss_2dgs:
-        # if cfg.train_dataset.dataset_type == 'lvis':
-        #     fovy = 60
-        # elif cfg.train_dataset.dataset_type == 'lara':
-        #     fovy = 39.6
-        # else:
-        #     assert False, "Unknown FOV type"
-        fovy = cfg.fovy 
+#     if cfg.ckpt_training_data == 'lvis':
+#         fovy = 60
+#     elif cfg.ckpt_training_data == 'lara':
+#         fovy = 39.6
+#     else:
+#         assert False, "Unknown FOV type"
         
+    if rendering_loss_2dgs:
+        fovy = cfg.fovy 
         gs = GaussianRenderer(output_size=cfg.validation_train_dataset.render_size, fov_degrees=fovy) # fill in necessar
         print("Successfully inited GaussianRenderer")
         gs_renderings = defaultdict(list)
@@ -190,7 +196,6 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         
         # TODO: cat all splatter attributes
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
-        imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
         imgs_out_rendering = batch['imgs_out']
         
         # (2B, Nv, Nce)
@@ -203,15 +208,33 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         camera_task_embeddings = torch.cat([camera_embeddings, task_embeddings], dim=-1)
 
         # (B*Nv, 3, H, W)
-        imgs_in, imgs_out = rearrange(imgs_in, "B Nv C H W -> (B Nv) C H W"), rearrange(imgs_out, "B Nv C H W -> (B Nv) C H W")
+        try:
+            imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
+            imgs_out = rearrange(imgs_out, "B Nv C H W -> (B Nv) C H W")
+            # imgs_out = rearrange_images(imgs_out)
+            # images_gt.append(imgs_out)
+        except:
+            pass
+            
+        # savegt
+        for sn, img, cond in zip(batch['scene_name'], imgs_out_rendering, imgs_in):
+            save_image(img, os.path.join(save_dir, f"{sn}-gt.jpg"))
+            # save cond
+            save_image(cond[0], os.path.join(save_dir, f"{sn}-cond.jpg"))
+        
+        imgs_in = rearrange(imgs_in, "B Nv C H W -> (B Nv) C H W")
         imgs_out_rendering = rearrange(imgs_out_rendering, "B Nv C H W -> (B Nv) C H W")
         # (B*Nv, Nce)
         camera_task_embeddings = rearrange(camera_task_embeddings, "B Nv Nce -> (B Nv) Nce")
 
-        images_cond.append(imgs_in)
-        imgs_out = rearrange_images(imgs_out)
-        images_gt.append(imgs_out)
-        images_gt_rendering.append(imgs_out_rendering)
+        # images_cond.append(imgs_in)
+        # images_gt_rendering.append(imgs_out_rendering)
+        
+        with open(os.path.join(save_dir, f"{global_step}-{name}-scene_names.txt"), 'a') as f:
+            for sn, ele_cond in zip(batch['scene_name'], batch['elevations_cond_deg']):
+                f.write(f"{sn}: {ele_cond[0]}\n")
+                    
+
         with torch.autocast("cuda"):
             # B*Nv images
             for guidance_scale in cfg.validation_guidance_scales:
@@ -241,13 +264,19 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                 out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
                 
 
-                images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
-                
+                # images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
+               
 
                 if rendering_loss_2dgs:
                     data = batch
 
                     splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
+                    
+                    # for i, sn in enumerate(batch['scene_name']):
+                        # save_image(out[i], os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
+                    for sn, scene_splatter in zip(data['scene_name'], splatters_bdv):
+                        save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
+                 
                     
                     batchify = True
                     if not batchify:
@@ -258,9 +287,19 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                         gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
                     
-                    assert  gaussians.shape == data["gaussians_gt"].shape
+                    # gaussians = data["gaussians_gt"].to(unet.device)
+                    # st()
+                    # gs_path = "/home/xuyimeng/Repo/zero-1-to-G/runs/gso/workspace_gso/20240928-045636-GSO_2dgs-cam1.0-wild-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_2_of_Jenga_Classic_Game/splatters_mv.pt"
+                    # gs_path = '/home/xuyimeng/Repo/zero-1-to-G/runs/gso/workspace_gso/20240928-064930-lara-GSO_2dgs-cam1.0-wild-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_11pro_SL_TRX_FG/splatters_mv.pt'
+                    # gs_path = 'inferenced_gaussians/ikun.pt'
+                    # gaussians = torch.load(gs_path).reshape(14, -1).permute(1,0)[None].repeat(gaussians.shape[0], 1, 1)
+                    # print("using GT gaussians []loaded")
+                    # # assert  gaussians.shape == data["gaussians_gt"].shape
                     print("gaussians recon from BVD out v5: ", gaussians.shape)
                     
+                    # for sn, single_gaussian in zip(data['scene_name'], gaussians):
+                    #     gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
+                      
 
                     if not batchify:
                         gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
@@ -277,55 +316,68 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     for k, v in gs_results.items():
                         if 'dist' in k or 'depth' in k or 'alpha' in k:
                             continue
-                        v = rearrange(v, "B V C H W -> (B V) C H W")
-                        gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
+                        
+                        # save each scene rendering separately
+                        for sn, img in zip(data['scene_name'], v):
+                            if 'normal' in k:
+                                img = (img + 1) / 2
+                            save_image(img, os.path.join(save_dir, f"{sn}-{k}-sample_cfg{guidance_scale:.1f}.jpg"))
+                        
+                       
+                        
+                        
+                        # v = rearrange(v, "B V C H W -> (B V) C H W")
+                        # gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
+
+                      
                 
                 
-    images_cond_all = torch.cat(images_cond, dim=0)
-    images_gt_all = torch.cat(images_gt, dim=0)
-    images_gt_rendering_all = torch.cat(images_gt_rendering, dim=0)
+    # images_cond_all = torch.cat(images_cond, dim=0)
+    # if len(images_gt) > 0:
+    #     images_gt_all = torch.cat(images_gt, dim=0)
+    #     images_gt_grid = make_grid(images_gt_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+    #     save_image(images_gt_grid, os.path.join(save_dir, f"{global_step}-{name}-gt.jpg"))
+    # images_gt_rendering_all = torch.cat(images_gt_rendering, dim=0)
          
-    images_pred_all = {}
-    for k, v in images_pred.items():
-        images_pred_all[k] = torch.cat(v, dim=0)
+    # images_pred_all = {}
+    # for k, v in images_pred.items():
+    #     images_pred_all[k] = torch.cat(v, dim=0)
     
-    if rendering_loss_2dgs:
-        gs_pred_all = {}
-        for k, v in gs_renderings.items():
-            gs_pred_all[k] = torch.cat(v, dim=0)
+    # if rendering_loss_2dgs:
+    #     gs_pred_all = {}
+    #     for k, v in gs_renderings.items():
+    #         gs_pred_all[k] = torch.cat(v, dim=0)
     
+    # # for k, v in images_pred_all.items():
+    # #     print("images_pred_all shape: ", k, v.shape)    
+    # # for k, v in gs_pred_all.items():
+    # #     print("gs_pred_all shape: ", k, v.shape)
+    
+    # nrow = cfg.validation_grid_nrow
+    # ncol = images_cond_all.shape[0] // nrow
+    # images_cond_grid = make_grid(images_cond_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+    # images_gt_rendering_grid = make_grid(images_gt_rendering_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+    # images_pred_grid = {}
     # for k, v in images_pred_all.items():
-    #     print("images_pred_all shape: ", k, v.shape)    
-    # for k, v in gs_pred_all.items():
-    #     print("gs_pred_all shape: ", k, v.shape)
+    #     images_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+    # save_image(images_cond_grid, os.path.join(save_dir, f"{global_step}-{name}-cond.jpg"))
+    # save_image(images_gt_rendering_grid, os.path.join(save_dir, f"{global_step}-{name}-gt-rendering.jpg"))
+    # for k, v in images_pred_grid.items():
+    #     save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
     
-    nrow = cfg.validation_grid_nrow
-    ncol = images_cond_all.shape[0] // nrow
-    images_cond_grid = make_grid(images_cond_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
-    images_gt_grid = make_grid(images_gt_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
-    images_gt_rendering_grid = make_grid(images_gt_rendering_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
-    images_pred_grid = {}
-    for k, v in images_pred_all.items():
-        images_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
-    save_image(images_cond_grid, os.path.join(save_dir, f"{global_step}-{name}-cond.jpg"))
-    save_image(images_gt_grid, os.path.join(save_dir, f"{global_step}-{name}-gt.jpg"))
-    save_image(images_gt_rendering_grid, os.path.join(save_dir, f"{global_step}-{name}-gt-rendering.jpg"))
-    for k, v in images_pred_grid.items():
-        save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
-    
-    if rendering_loss_2dgs:
-        # to do 
-        #   1. rotate normals
-        #   2. save gt normals
-        gs_pred_grid = {}
-        for k, v in gs_pred_all.items():
-            if '_normal' in k:
-                gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, normalize=True, value_range=(-1, 1))
-            else:
-                gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
-        for k, v in gs_pred_grid.items():
-            # print("gs_pred_grid: ", k, v.shape)
-            save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
+    # if rendering_loss_2dgs:
+    #     # to do 
+    #     #   1. rotate normals
+    #     #   2. save gt normals
+    #     gs_pred_grid = {}
+    #     for k, v in gs_pred_all.items():
+    #         if '_normal' in k:
+    #             gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, normalize=True, value_range=(-1, 1))
+    #         else:
+    #             gs_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1)) # nrow = cfg.render_views * 2
+    #     for k, v in gs_pred_grid.items():
+    #         # print("gs_pred_grid: ", k, v.shape)
+    #         save_image(v, os.path.join(save_dir, f"{global_step}-{k}.jpg"))
         
     torch.cuda.empty_cache()
 
@@ -387,6 +439,52 @@ def main(
         project_config=accelerator_project_config,
     )
 
+    
+    
+    if cfg.validation_dataset.dataset_type == 'lvis':
+        def random_init(id):
+            return
+        from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
+    elif cfg.validation_dataset.dataset_type == 'lara':
+        def random_init(id):
+            torch.utils.data.get_worker_info().dataset.worker_init_open_db()
+        from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
+    elif cfg.validation_dataset.dataset_type == 'gso':
+        # def random_init(id):
+        #     return
+        def random_init(id):
+            torch.utils.data.get_worker_info().dataset.worker_init_open_db()
+        from mvdiffusion.data.provider_lara_splatter_optimized_GSO import gobjverse as MVDiffusionDataset
+    else:
+        raise ValueError(f"Unknown dataset type: {cfg.train_dataset.dataset_type}")
+
+    # # Get the training dataset
+    # train_dataset = MVDiffusionDataset(
+    #     **cfg.train_dataset
+    # )
+    validation_dataset = MVDiffusionDataset(
+        **cfg.validation_dataset
+    )
+    # validation_train_dataset = MVDiffusionDataset(
+    #     **cfg.validation_train_dataset
+    # )
+    
+
+    # # DataLoaders creation:
+    # train_dataloader = torch.utils.data.DataLoader(
+    #     train_dataset, batch_size=cfg.train_batch_size, shuffle=True, num_workers=cfg.dataloader_num_workers,
+    #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    # )
+    validation_dataloader = torch.utils.data.DataLoader(
+        validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    )
+    # validation_train_dataloader = torch.utils.data.DataLoader(
+    #     validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+    #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    # )
+
+
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -444,13 +542,15 @@ def main(
         for k in sorted(trainable_decoder_params):
             v = ckpt[f"vae.{k}"]
             if k in state_dict and state_dict[k].shape == v.shape:
-                print(f"Copying {k}")
+                # print(f"Copying {k}")
                 state_dict[k].copy_(v)
             else:
                 if k not in state_dict:
                     accelerator.print(f'[WARN] Parameter {k} not found in model.')
                 else:
                     accelerator.print(f'[WARN] Mismatching shape for param {k}: ckpt {v.shape} != model {state_dict[k].shape}, ignored.')
+        print("Successfully loaded decoder ckpt")
+        
         torch.cuda.empty_cache()
     
     
@@ -561,88 +661,48 @@ def main(
             cfg.learning_rate * cfg.gradient_accumulation_steps * cfg.train_batch_size * accelerator.num_processes
         )
 
-    # Initialize the optimizer
-    if cfg.use_8bit_adam:
-        try:
-            import bitsandbytes as bnb
-        except ImportError:
-            raise ImportError(
-                "Please install bitsandbytes to use 8-bit Adam. You can do so by running `pip install bitsandbytes`"
-            )
+    # # Initialize the optimizer
+    # if cfg.use_8bit_adam:
+    #     try:
+    #         import bitsandbytes as bnb
+    #     except ImportError:
+    #         raise ImportError(
+    #             "Please install bitsandbytes to use 8-bit Adam. You can do so by running `pip install bitsandbytes`"
+    #         )
 
-        optimizer_cls = bnb.optim.AdamW8bit
-    else:
-        optimizer_cls = torch.optim.AdamW
+    #     optimizer_cls = bnb.optim.AdamW8bit
+    # else:
+    #     optimizer_cls = torch.optim.AdamW
 
-    params, params_class_embedding = [], []
-    for name, param in unet.named_parameters():
-        if 'class_embedding' in name:
-            params_class_embedding.append(param)
-        else:
-            params.append(param)
-    optimizer = optimizer_cls(
-        [
-            {"params": params, "lr": cfg.learning_rate},
-            {"params": params_class_embedding, "lr": cfg.learning_rate * cfg.camera_embedding_lr_mult}
-        ],
-        betas=(cfg.adam_beta1, cfg.adam_beta2),
-        weight_decay=cfg.adam_weight_decay,
-        eps=cfg.adam_epsilon,
-    )
+    # params, params_class_embedding = [], []
+    # for name, param in unet.named_parameters():
+    #     if 'class_embedding' in name:
+    #         params_class_embedding.append(param)
+    #     else:
+    #         params.append(param)
+    # optimizer = optimizer_cls(
+    #     [
+    #         {"params": params, "lr": cfg.learning_rate},
+    #         {"params": params_class_embedding, "lr": cfg.learning_rate * cfg.camera_embedding_lr_mult}
+    #     ],
+    #     betas=(cfg.adam_beta1, cfg.adam_beta2),
+    #     weight_decay=cfg.adam_weight_decay,
+    #     eps=cfg.adam_epsilon,
+    # )
 
-    lr_scheduler = get_scheduler(
-        cfg.lr_scheduler,
-        optimizer=optimizer,
-        num_warmup_steps=cfg.lr_warmup_steps * accelerator.num_processes,
-        num_training_steps=cfg.max_train_steps * accelerator.num_processes,
-    )
-
-    if cfg.train_dataset.dataset_type == 'lvis':
-        from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
-    elif cfg.train_dataset.dataset_type == 'lara':
-        from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
-    else:
-        raise ValueError(f"Unknown dataset type: {cfg.train_dataset.dataset_type}")
-
-    # Get the training dataset
-    train_dataset = MVDiffusionDataset(
-        **cfg.train_dataset
-    )
-  
-    validation_train_dataset = MVDiffusionDataset(
-        **cfg.validation_train_dataset
-    )
-
-    if cfg.validation_dataset.dataset_type == 'gso':
-        from mvdiffusion.data.provider_lara_splatter_optimized_GSO import gobjverse as GSOMVDiffusionDataset
-        validation_dataset = GSOMVDiffusionDataset(
-            **cfg.validation_dataset
-            )
-    else:
-        validation_dataset = MVDiffusionDataset(
-            **cfg.validation_dataset
-        )
-
-    def random_init(id):
-        torch.utils.data.get_worker_info().dataset.worker_init_open_db()
-
-    # DataLoaders creation:
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=cfg.train_batch_size, shuffle=True, num_workers=cfg.dataloader_num_workers,
-        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    )
-    validation_dataloader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
-        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    )
-    validation_train_dataloader = torch.utils.data.DataLoader(
-        validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
-        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    )
+    # lr_scheduler = get_scheduler(
+    #     cfg.lr_scheduler,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=cfg.lr_warmup_steps * accelerator.num_processes,
+    #     num_training_steps=cfg.max_train_steps * accelerator.num_processes,
+    # )
 
     # Prepare everything with our `accelerator`.
-    unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        unet, optimizer, train_dataloader, lr_scheduler
+    # unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+    #     unet, optimizer, train_dataloader, lr_scheduler
+    # )
+    unet = accelerator.prepare(
+        unet
     )
 
     if cfg.use_ema:
@@ -665,9 +725,9 @@ def main(
     clip_image_mean = torch.as_tensor(feature_extractor.image_mean)[:,None,None].to(accelerator.device, dtype=torch.float32)
     clip_image_std = torch.as_tensor(feature_extractor.image_std)[:,None,None].to(accelerator.device, dtype=torch.float32)
 
-    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / cfg.gradient_accumulation_steps)
-    num_train_epochs = math.ceil(cfg.max_train_steps / num_update_steps_per_epoch)
+    # # We need to recalculate our total training steps as the size of the training dataloader may have changed.
+    # num_update_steps_per_epoch = math.ceil(len(train_dataloader) / cfg.gradient_accumulation_steps)
+    # num_train_epochs = math.ceil(cfg.max_train_steps / num_update_steps_per_epoch)
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
@@ -679,13 +739,13 @@ def main(
     # Train!
     total_batch_size = cfg.train_batch_size * accelerator.num_processes * cfg.gradient_accumulation_steps
 
-    logger.info("***** Running training *****")
-    logger.info(f"  Num examples = {len(train_dataset)}")
-    logger.info(f"  Num Epochs = {num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {cfg.train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    logger.info(f"  Gradient Accumulation steps = {cfg.gradient_accumulation_steps}")
-    logger.info(f"  Total optimization steps = {cfg.max_train_steps}")
+    # logger.info("***** Running inference *****")
+    # logger.info(f"  Num examples = {len(train_dataset)}")
+    # logger.info(f"  Num Epochs = {num_train_epochs}")
+    # logger.info(f"  Instantaneous batch size per device = {cfg.train_batch_size}")
+    # logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    # logger.info(f"  Gradient Accumulation steps = {cfg.gradient_accumulation_steps}")
+    # logger.info(f"  Total optimization steps = {cfg.max_train_steps}")
     global_step = 0
     first_epoch = 0
 
@@ -737,27 +797,34 @@ def main(
                 
             global_step = cfg.last_global_step
 
-            resume_global_step = global_step * cfg.gradient_accumulation_steps
-            first_epoch = global_step // num_update_steps_per_epoch
-            resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
+            # resume_global_step = global_step * cfg.gradient_accumulation_steps
+            # first_epoch = global_step // num_update_steps_per_epoch
+            # resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
    
     ## add a log validation right before training, without any gradient updates
     if accelerator.is_main_process:
-        log_validation_inference(
-            validation_dataloader,
-            vae,
-            feature_extractor,
-            image_encoder,
-            unet,
-            cfg,
-            accelerator,
-            weight_dtype,
-            'init',
-            'validation',
-            vis_dir
-        )
-        print("log validation before training, saved to ", vis_dir)
+        # unet.eval()
+        print("Not using eval mode")
+        inference_dir = os.path.join(cfg.output_dir, "inference")
+        os.makedirs(inference_dir, exist_ok=True)
+        with torch.no_grad():
+            log_validation(
+                validation_dataloader,
+                vae,
+                feature_extractor,
+                image_encoder,
+                unet,
+                cfg,
+                accelerator,
+                weight_dtype,
+                'init',
+                'validation',
+                inference_dir,
+            )
+            print("log validation before training, saved to ", inference_dir)
+            # st()
+            exit()
         
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
@@ -1000,7 +1067,7 @@ def main(
                             unet.save_pretrained(os.path.join(cfg.output_dir, f"unet-{global_step}/unet"))
                         logger.info(f"Saved state to {save_path}")
 
-                if global_step % cfg.validation_steps == 0: # or (cfg.validation_sanity_check and global_step == 1):
+                if global_step % cfg.validation_steps == 0 or (cfg.validation_sanity_check and global_step == 1):
                     if accelerator.is_main_process:
                         if cfg.use_ema:
                             # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
@@ -1019,24 +1086,19 @@ def main(
                             'validation',
                             vis_dir
                         )
-                        print("log validation, saved to ", vis_dir)
-                        
-                        inference_dir = os.path.join(vis_dir, f"inference_{global_step}")
-                        os.makedirs(inference_dir, exist_ok=True)
-                        log_validation_inference(
-                            validation_train_dataloader,
-                            vae,
-                            feature_extractor,
-                            image_encoder,
-                            unet,
-                            cfg,
-                            accelerator,
-                            weight_dtype,
-                            global_step,
-                            'validation_train',
-                            inference_dir,
-                        )                       
-                        print("log validation inference, saved to ", inference_dir)
+                        # log_validation(
+                        #     validation_train_dataloader,
+                        #     vae,
+                        #     feature_extractor,
+                        #     image_encoder,
+                        #     unet,
+                        #     cfg,
+                        #     accelerator,
+                        #     weight_dtype,
+                        #     global_step,
+                        #     'validation_train',
+                        #     vis_dir
+                        # )                       
                         if cfg.use_ema:
                             # Switch back to the original UNet parameters.
                             ema_unet.restore(unet.parameters())                        
