@@ -117,6 +117,7 @@ class TrainingConfig:
     pred_type: str
 
     drop_type: str
+    no_diffision_prior: bool
 
 
 def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg: TrainingConfig, accelerator, weight_dtype, global_step, name, save_dir):
@@ -238,6 +239,26 @@ def main(
     feature_extractor = CLIPImageProcessor.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="feature_extractor", revision=cfg.revision)
     vae = AutoencoderKL.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="vae", revision=cfg.revision)
     unet = UNetMV2DConditionModel.from_pretrained_2d(cfg.pretrained_model_name_or_path, subfolder="unet", revision=cfg.revision, **cfg.unet_from_pretrained_kwargs)
+    if cfg.no_diffision_prior:
+        import torch.nn as nn
+        def random_initialize_unet(unet):
+            # Recursively initialize weights of a given module
+            def init_weights(m):
+                if isinstance(m, (nn.Conv2d, nn.Linear)):
+                    nn.init.kaiming_normal_(m.weight)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+                elif isinstance(m, nn.LayerNorm):
+                    nn.init.constant_(m.weight, 1)
+                    nn.init.constant_(m.bias, 0)
+
+            # Apply weight initialization
+            print("Random init UNet weights")
+            unet.apply(init_weights)
+        
+        random_initialize_unet(unet)
+        # st()
+        
 
     if cfg.use_ema:
         ema_unet = EMAModel(unet.parameters(), model_cls=UNetMV2DConditionModel, model_config=unet.config)
