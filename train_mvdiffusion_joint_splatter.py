@@ -444,7 +444,7 @@ def main(
         for k in sorted(trainable_decoder_params):
             v = ckpt[f"vae.{k}"]
             if k in state_dict and state_dict[k].shape == v.shape:
-                print(f"Copying {k}")
+                # print(f"Copying {k}")
                 state_dict[k].copy_(v)
             else:
                 if k not in state_dict:
@@ -613,6 +613,8 @@ def main(
         **cfg.validation_train_dataset
     )
 
+    # wait for 10 seconds to make sure all processes are ready
+    time.sleep(10)
     if cfg.validation_dataset.dataset_type == 'gso':
         from mvdiffusion.data.provider_lara_splatter_optimized_GSO import gobjverse as GSOMVDiffusionDataset
         validation_dataset = GSOMVDiffusionDataset(
@@ -744,8 +746,23 @@ def main(
    
     ## add a log validation right before training, without any gradient updates
     if accelerator.is_main_process:
+        # log_validation_inference(
+        #     validation_dataloader,
+        #     vae,
+        #     feature_extractor,
+        #     image_encoder,
+        #     unet,
+        #     cfg,
+        #     accelerator,
+        #     weight_dtype,
+        #     'init',
+        #     'validation',
+        #     vis_dir
+        # )
+        # st()
+     
         log_validation_inference(
-            validation_dataloader,
+            validation_train_dataloader,
             vae,
             feature_extractor,
             image_encoder,
@@ -754,10 +771,11 @@ def main(
             accelerator,
             weight_dtype,
             'init',
-            'validation',
+            'validation_train',
             vis_dir
         )
-        print("log validation before training, saved to ", vis_dir)
+        # print("log validation before training, saved to ", vis_dir)
+        # st()
         
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
@@ -989,6 +1007,9 @@ def main(
                 global_step += 1
                 accelerator.log({"train_loss": train_loss}, step=global_step)
                 train_loss = 0.0
+                
+                if global_step % 1000 == 0:
+                    torch.cuda.empty_cache() 
 
                 if global_step % cfg.checkpointing_steps == 0:
                     if accelerator.is_main_process:
@@ -999,6 +1020,8 @@ def main(
                         except:
                             unet.save_pretrained(os.path.join(cfg.output_dir, f"unet-{global_step}/unet"))
                         logger.info(f"Saved state to {save_path}")
+
+                    
 
                 if global_step % cfg.validation_steps == 0: # or (cfg.validation_sanity_check and global_step == 1):
                     if accelerator.is_main_process:
@@ -1023,20 +1046,20 @@ def main(
                         
                         inference_dir = os.path.join(vis_dir, f"inference_{global_step}")
                         os.makedirs(inference_dir, exist_ok=True)
-                        log_validation_inference(
-                            validation_train_dataloader,
-                            vae,
-                            feature_extractor,
-                            image_encoder,
-                            unet,
-                            cfg,
-                            accelerator,
-                            weight_dtype,
-                            global_step,
-                            'validation_train',
-                            inference_dir,
-                        )                       
-                        print("log validation inference, saved to ", inference_dir)
+                        # log_validation_inference(
+                        #     validation_train_dataloader,
+                        #     vae,
+                        #     feature_extractor,
+                        #     image_encoder,
+                        #     unet,
+                        #     cfg,
+                        #     accelerator,
+                        #     weight_dtype,
+                        #     global_step,
+                        #     'validation_train',
+                        #     inference_dir,
+                        # )                       
+                        # print("log validation inference, saved to ", inference_dir)
                         if cfg.use_ema:
                             # Switch back to the original UNet parameters.
                             ema_unet.restore(unet.parameters())                        
