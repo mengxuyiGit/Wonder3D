@@ -90,6 +90,7 @@ class gobjverse(torch.utils.data.Dataset):
         render_size: int = 256,
         dataset_type: str = "lara",
         splatter_mode: str = "2dgs",
+        normalize_campose: bool = True,
         ):
         super(gobjverse, self).__init__()
 
@@ -103,6 +104,8 @@ class gobjverse(torch.utils.data.Dataset):
         self.data_root = root_dir
         self.cam_radius = 1.5
         self.dataset_type = dataset_type
+        self.normalize_campose = normalize_campose
+        print("Normalizing camera poses:", self.normalize_campose)
         
         # LMDB
         self.lmdb_6view_base = lmdb_6view_base
@@ -139,6 +142,7 @@ class gobjverse(torch.utils.data.Dataset):
                 i_train = i_test*1000
                 i_test = i_test*2
                 
+            i_test = i_test[:4] # save time
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
             
             print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
@@ -388,8 +392,31 @@ class gobjverse(torch.utils.data.Dataset):
         selected_attr = random.choice(gt_attr_keys)
         # selected_attr = 'rgbs'
 
-        # splatter_uid = "/mnt/kostas-graid/datasets/xuyimeng/lvis/splatter_data_2dgs/0/20240924-043723-lvis_2dgs-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_00dfee50afad4153880d3a04d9a040aa"
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
+        
+        if self.normalize_campose:
+            # assume the splatter is normalized to cam[0], we now have to revserse the normalization
+            cam_poses = torch.from_numpy(tar_c2ws)
+            
+            # normalized camera feats as in paper (transform the first pose to a fixed position)
+            radius = torch.norm(cam_poses[0, :3, 3])
+            # print("radius", radius)
+            cam_poses[:, :3, 3] *= self.cam_radius / radius # normalize to cam_radius
+
+          
+            transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
+            cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+        
+            # # opengl to colmap camera for gaussian renderer
+            # cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+            # results['cam_poses'] = cam_poses # [V, 4, 4]
+            
+            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
+        else:
+            # splatter_uid = "/mnt/kostas-graid/datasets/xuyimeng/lvis/splatter_data_2dgs/0/20240924-043723-lvis_2dgs-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_00dfee50afad4153880d3a04d9a040aa"
+            _transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
+            denorm_transform = torch.inverse(_transform)
+            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr], denormalization_cam_pose=denorm_transform) # [-1,1]
+
         normal_final = splatter_original_Channel_mvimage_dict[selected_attr]
         normal_final = einops.rearrange(normal_final, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
         # print("selected_attr", selected_attr)
@@ -500,6 +527,7 @@ class gobjverse(torch.utils.data.Dataset):
         ### no need to read the below infos
         rendering_loss_2dgs = self.rendering_loss_2dgs
         # print("rendering_loss_2dgs", rendering_loss_2dgs)
+        denorm_transform = None
         if rendering_loss_2dgs:
         
             cam_poses = torch.from_numpy(tar_c2ws)
@@ -509,12 +537,15 @@ class gobjverse(torch.utils.data.Dataset):
             # print("radius", radius)
             cam_poses[:, :3, 3] *= self.cam_radius / radius
 
-            normalize_campose = True
-            if normalize_campose:
+            if self.normalize_campose:
                 transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
                 cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
             else:
                 transform = torch.eye(4)
+                denorm_transform = torch.inverse(torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0]))
+                # denorm_transform = None
+                # print('Debug: use None denorm_transform')
+
             # opengl to colmap camera for gaussian renderer
             cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
             results['cam_poses'] = cam_poses # [V, 4, 4]
@@ -546,7 +577,6 @@ class gobjverse(torch.utils.data.Dataset):
                 # # make the bg of normal map to img bg
                 # # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
                 # normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
-            
     
                 results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.render_size[0], self.render_size[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
                 results['normals_out'] = F.interpolate(normal_final, size=(self.render_size[0], self.render_size[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
@@ -570,7 +600,7 @@ class gobjverse(torch.utils.data.Dataset):
         # results['imgs_in'] = F.interpolate(wild_image.unsqueeze(0).permute(0,3,1,2), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
            
         
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs) # [-1,1]
+        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs, denormalization_cam_pose=denorm_transform) # [-1,1]
 
         if rendering_loss_2dgs:
             results['gaussians_gt'] = splatter_original_Channel_mvimage_dict['gaussians_gt']

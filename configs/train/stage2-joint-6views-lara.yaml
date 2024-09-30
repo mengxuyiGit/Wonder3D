@@ -23,7 +23,8 @@ train_dataset:
   read_first_view_only: true
   render_views: 10
   dataset_type: lara
-  render_size: 512
+  normalize_campose: true
+  render_size: 256
 validation_dataset:
   root_dir: ${train_dataset.root_dir}
   # root_dir: /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
@@ -44,6 +45,7 @@ validation_dataset:
   read_first_view_only: false
   render_views: 20
   dataset_type: 'gso'
+  normalize_campose: ${train_dataset.normalize_campose}
   render_size: ${train_dataset.render_size}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}
@@ -64,9 +66,12 @@ validation_train_dataset:
   read_first_view_only: false
   render_views: 20
   dataset_type: ${train_dataset.dataset_type}
+  normalize_campose: ${train_dataset.normalize_campose}
   render_size: ${train_dataset.render_size}
   
-output_dir: outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable
+# output_dir: outputs/splatter/normalize_cam_false/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable
+# output_dir: outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu8-all_trainable-2nd
+output_dir: outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu8-all_trainable-3rd
 fovy: 39.6
 
 seed: 42
@@ -96,7 +101,7 @@ vis_dir: vis
 mixed_precision: fp16
 report_to: tensorboard
 local_rank: -1
-checkpointing_steps: 2000
+checkpointing_steps: 1000
 checkpoints_total_limit: null
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true

@@ -8,6 +8,7 @@ from scipy.spatial.transform import Rotation as R
 import h5py
 import os
 import einops
+from kiui.cam import orbit_camera
 
 from ipdb import set_trace as st
 import torch.nn.functional as F
@@ -86,6 +87,11 @@ class gobjverse(torch.utils.data.Dataset):
         render_views: int = 10,
         render_size: int = 256,
         dataset_type: str = "lara",
+        splatter_mode: str = "2dgs",
+        ckpt_training_data: str = None,
+        output_dir: str = None,
+        normalize_campose: bool = True,
+        GSO_root: str = None,
         ):
         super(gobjverse, self).__init__()
 
@@ -99,6 +105,7 @@ class gobjverse(torch.utils.data.Dataset):
         self.data_root = root_dir
         self.cam_radius = 1.5
         self.dataset_type = dataset_type
+        self.normalize_campose = normalize_campose
         
         # LMDB
         self.lmdb_6view_base = lmdb_6view_base
@@ -117,12 +124,37 @@ class gobjverse(torch.utils.data.Dataset):
         print("Number of scenes", len(self.metas.keys()))
         scenes_name = np.array(sorted(self.metas.keys())) # [:1000]
         
+        ### GSO
+    
+        if GSO_root is None:
+            # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele5.978-12views'
+            # GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.2-ele17.5'
+            GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.2-ele17.5-12views'
+            # GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele0-12views'
+            # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/view1'
+            # self.gso_elevation = 17.5
             
-        # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele5.978-12views'
-        GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele0-12views'
-        # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/view1'
-        self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))
-        self.debug_GSO = False
+            ### in the wild
+            # GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples'
+            GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/images'
+        
+        print("GSO_root", GSO_root)
+        self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))[:2]
+        self.gso_elevation = 10
+        
+        
+        # in the wild
+        # self.path_gso_objects = ['/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples/bird.jpg']
+        # wild_path = '/home/xuyimeng/Repo/InstantMesh/outputs/sep_21/instant-mesh-base-v11_sep_21/gso/liuyuan/fov39.6-cam1.3-ele0-12views/images/examples_InstantMesh-geco_cond.png'
+        # wild_path = wild_path.replace('.png', '_padded.png')
+        # self.path_gso_objects = [wild_path]
+        # self.path_gso_objects = ['/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples/tree.png']
+        # self.path_gso_objects.append("gvgen/ikun_rgba.png")
+        # self.path_gso_objects = ["gvgen/minion.png"]
+
+        print("objects to eval: ", self.path_gso_objects)
+        
+        self.debug_GSO = True
         
         # debug = False
         if debug:
@@ -132,7 +164,7 @@ class gobjverse(torch.utils.data.Dataset):
             self.scenes_name = self.metas['splits']['test'][:].astype(str) #self.metas['splits'][self.split]
         else:
             n_scenes = 300000
-            i_test = np.arange(len(scenes_name))[::10][:10] # only test 10 scenes
+            i_test = np.arange(len(scenes_name))[::10][:len(self.path_gso_objects)] # only test 10 scenes
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
             
@@ -161,6 +193,7 @@ class gobjverse(torch.utils.data.Dataset):
                 create_lmdb = True
             else:
                 # Open the LMDB database in read-only mode
+                print(f"Opening existing LMDB database: {self.lmdb_path}  ...")
                 env = lmdb.open(self.lmdb_path, readonly=True)
                 with env.begin() as txn:
                     cursor = txn.cursor()
@@ -203,6 +236,8 @@ class gobjverse(torch.utils.data.Dataset):
         else:
             self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
         
+        if self.debug_GSO:
+            self.scenes_name = self.scenes_name[:len(self.path_gso_objects)]
     
     
     def worker_init_open_db(self):
@@ -457,38 +492,49 @@ class gobjverse(torch.utils.data.Dataset):
             import cv2
          
             path_gso = self.path_gso_objects[index]
+            print("path_gso", path_gso)
             
             # Specify the path to the .pkl file
-            # file_path = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele5.978/backpack/meta.pkl'
             file_path = f'{path_gso}/meta.pkl'
-            with open(file_path, 'rb') as f:
-                data = pickle.load(f)
-            K, azimuths, elevations, distances, cam_poses = data
+            if os.path.exists(file_path):
+                with open(file_path, 'rb') as f:
+                    data = pickle.load(f)
+                K, azimuths, elevations, distances, cam_poses = data
+                
+                padding = np.array([0., 0., 0., 1])[None].repeat(cam_poses.shape[0], axis=0)[:,None]
+                tar_c2ws = np.concatenate([cam_poses, padding], axis=1).astype(tar_c2ws.dtype)
+                tar_eles = np.rad2deg(elevations)
+                # tar_azis = np.rad2deg(azimuths) # this is the azis of splatters, use the fixed 6 views instead
+                print("pkl loaded\n", tar_eles, "\n", tar_azis)
+                print("tar_c2ws GSO", '\n', tar_c2ws.shape)
             
-            padding = np.array([0., 0., 0., 1])[None].repeat(cam_poses.shape[0], axis=0)[:,None]
-            tar_c2ws = np.concatenate([cam_poses, padding], axis=1).astype(tar_c2ws.dtype)
-            tar_eles = np.rad2deg(elevations)
-            # tar_azis = np.rad2deg(azimuths) # this is the azis of splatters, use the fixed 6 views instead
-            print("pkl loaded\n", tar_eles, "\n", tar_azis)
-            print("tar_c2ws GSO", '\n', tar_c2ws)
-            
-            # load all images under path_gso
-            images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in sorted(glob.glob(f"{path_gso}/*.png"))])
-            print("images shape:", images.shape)
+                # # load all images under path_gso
+                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in sorted(glob.glob(f"{path_gso}/*.png"))])
+            else:
+                # only have condition images
+                tar_eles = np.array([0]*6) if self.gso_elevation is None else np.array([self.gso_elevation]*6)
+                tar_c2ws = np.stack([orbit_camera(-elevation, azimuth, radius=self.cam_radius) for elevation, azimuth in zip(tar_eles, [0, 90, 180, 270, 30, 330])])
+                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [path_gso]])
+                
+                pass # in the wild data
+                
+            print("images shape:", images.shape)    
             
             image = torch.from_numpy(images)
             image = image.permute(3,0,1,2) # [4, 512, 512]
-            mask = image[3:4] # [1, 512, 512]
-            image = image[:3] * mask + (1 - mask) * 1.0 # [3, 512, 512], to white bg
-            image = image[[2,1,0]].contiguous() # bgr to rgb
+            if image.shape[0] == 4:
+                mask = image[3:4] # [1, 512, 512]
+                image = image[:3] * mask + (1 - mask) * 1.0 # [3, 512, 512], to white bg
             
+            image = image[[2,1,0]].contiguous() # bgr to rgb
             images = image.permute(1,0,2,3)
             print("images shape before imgs_in: ", images.shape) # 4, 3, 512, 512
             
-            # print("imgs_in shape: ", results['imgs_in'].shape) # 1, 3, 256, 256
             results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1)
-            # print("[GSO] imgs_in shape: ", results['imgs_in'].shape) # 1, 3, 256, 256
-
+            
+            results['scene_name'] = path_gso.split('/')[-1]
+        else:
+            results['scene_name'] = scene_name #uid.split('/')[-1]
 
         ### no need to read the below infos
         rendering_loss_2dgs = self.rendering_loss_2dgs
@@ -502,8 +548,7 @@ class gobjverse(torch.utils.data.Dataset):
             print("radius", radius)
             cam_poses[:, :3, 3] *= self.cam_radius / radius
             
-            use_transform = True
-            if use_transform:
+            if self.normalize_campose:
                 transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
                 cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
             else:
@@ -522,7 +567,7 @@ class gobjverse(torch.utils.data.Dataset):
             results['cam_view_proj'] = cam_view_proj
             # print(self.split, "cam_view", cam_view.shape, "cam_view_proj", cam_view_proj.shape)
 
-            read_normal = True
+            read_normal = False
             if read_normal:
                 normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
                 # depths = tar_img #[TODO: lara processed data has no depth]
@@ -581,6 +626,11 @@ class gobjverse(torch.utils.data.Dataset):
             elevations = torch.as_tensor(tar_eles[:self.num_views]).float()
             azimuths = torch.as_tensor(tar_azis[:self.num_views]).float() 
  
+       
+        # if self.debug_GSO:
+        #     elevations_cond = torch.zeros_like(elevations_cond) 
+        # else:
+        print("use original elevations")
         elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # not including the rendering views
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # not including the rendering views
         
@@ -619,7 +669,6 @@ class gobjverse(torch.utils.data.Dataset):
             results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*self.num_views, dim=0)
 
 
-        # results['scene_name'] = scene_name #uid.split('/')[-1]
         # results['splatter_uid'] = splatter_uid
       
         return results
