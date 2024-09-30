@@ -147,19 +147,19 @@ class gobjverse(torch.utils.data.Dataset):
             
             print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
             
+        
+        DATASET_BASE = '/mnt/task_wrapper/user_output/artifacts/lara/dataset' # "/mnt/lingjie_cache/"
+       
         # splatter mv data
-        self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
-        # self.splatter_root = "/home/xuyimeng/Repo/zero-1-to-G/runs/lara/workspace_debug/20240928-072650-load_GObj-finetuned_epoch1-fovy=39.6-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference"
+        self.splatter_root = f"{DATASET_BASE}/lara/splatter_data_multi_gpu/*/*/splatters_mv_inference"
         print("Splatter root", self.splatter_root)
-        # st()
         
         ##################### LMDB CREATION ##################################################
         coverage = "overfit" if overfit else "whole"
-        # coverage = "debug_high_quality"
-        DATASET_BASE = '/mnt/kostas-graid/datasets/' # "/mnt/lingjie_cache/"
-        # DATASET_BASE = "/mnt/lingjie_cache/"
-        self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
-        # self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_NOT_NORM_CAM_splatter_{self.split}_{coverage}.lmdb'
+       
+        self.lmdb_path = f'{DATASET_BASE}/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
+        print("LMDB path", self.lmdb_path)
+     
         create_lmdb = False
         self.lmdbFiles = None
 
