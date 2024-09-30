@@ -141,12 +141,14 @@ class TrainingConfig:
     sync_domain_timesteps: bool
     ckpt_training_data: str
     fovy: float
-
+    subdir: str
+    GSO_root: str
 
 def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg: TrainingConfig, accelerator, weight_dtype, global_step, name, save_dir):
     logger.info(f"Running {name} ... ")
 
-    with open(os.path.join(save_dir, f"{global_step}-{name}-scene_names.txt"), 'a') as f:
+    elevation_file = f"{global_step}-{name}-scene_elevations.txt" if global_step is not None else f"{name}-scene_names.txt"
+    with open(os.path.join(save_dir, elevation_file), 'a') as f:
         # write datetime and boundary line
         f.write(f"\n\n========================================\n")
         f.write(f"{datetime.datetime.now()}\n")
@@ -198,6 +200,9 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
         imgs_out_rendering = batch['imgs_out']
         
+        # print("begin inference")
+        # begin_time = time.time()
+        
         # (2B, Nv, Nce)
         camera_embeddings = torch.cat([batch['camera_embeddings']]*num_domains, dim=0)
 
@@ -218,7 +223,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
             
         # savegt
         for sn, img, cond in zip(batch['scene_name'], imgs_out_rendering, imgs_in):
-            save_image(img, os.path.join(save_dir, f"{sn}-gt.jpg"))
+            save_image(img, os.path.join(save_dir, f"{sn}-gt.jpg"), nrow=img.shape[0], padding=0)
             # save cond
             save_image(cond[0], os.path.join(save_dir, f"{sn}-cond.jpg"))
         
@@ -230,7 +235,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         # images_cond.append(imgs_in)
         # images_gt_rendering.append(imgs_out_rendering)
         
-        with open(os.path.join(save_dir, f"{global_step}-{name}-scene_names.txt"), 'a') as f:
+        with open(os.path.join(save_dir, elevation_file), 'a') as f:
             for sn, ele_cond in zip(batch['scene_name'], batch['elevations_cond_deg']):
                 f.write(f"{sn}: {ele_cond[0]}\n")
                     
@@ -242,6 +247,9 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
                 ).images
                 shape = out.shape
+                
+                # print("Pipe inference time: ", time.time() - begin_time)
+                # begin_time = time.time()
                 
                 # ###### old ######
                 # out0, out1 = out[:shape[0]//2], out[shape[0]//2:] # TODO: 2 -> 5
@@ -275,6 +283,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     # for i, sn in enumerate(batch['scene_name']):
                         # save_image(out[i], os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                     for sn, scene_splatter in zip(data['scene_name'], splatters_bdv):
+                        sn = f"{global_step}-{sn}" if global_step is not None else sn
                         save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                  
                     
@@ -294,10 +303,11 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     # gs_path = 'inferenced_gaussians/ikun.pt'
                     # gaussians = torch.load(gs_path).reshape(14, -1).permute(1,0)[None].repeat(gaussians.shape[0], 1, 1)
                     # print("using GT gaussians []loaded")
-                    # # assert  gaussians.shape == data["gaussians_gt"].shape
+                    # assert  gaussians.shape == data["gaussians_gt"].shape
                     print("gaussians recon from BVD out v5: ", gaussians.shape)
                     
                     # for sn, single_gaussian in zip(data['scene_name'], gaussians):
+                        # sn = f"{global_step}-{sn}" if global_step is not None else sn
                     #     gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
                       
 
@@ -312,7 +322,10 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         for k, v in gs_results_batch.items():
                             gs_results_batch[k] = torch.cat(v, dim=0)
                         gs_results = gs_results_batch
-                        
+                    
+                    # print("rendering time: ", time.time() - begin_time)
+                    
+                    
                     for k, v in gs_results.items():
                         if 'dist' in k or 'depth' in k or 'alpha' in k:
                             continue
@@ -321,10 +334,8 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         for sn, img in zip(data['scene_name'], v):
                             if 'normal' in k:
                                 img = (img + 1) / 2
-                            save_image(img, os.path.join(save_dir, f"{sn}-{k}-sample_cfg{guidance_scale:.1f}.jpg"))
-                        
-                       
-                        
+                            sn = f"{global_step}-{sn}" if global_step is not None else sn
+                            save_image(img, os.path.join(save_dir, f"{sn}-{k}-sample_cfg{guidance_scale:.1f}.jpg"), nrow=img.shape[0], padding=0)
                         
                         # v = rearrange(v, "B V C H W -> (B V) C H W")
                         # gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
@@ -818,7 +829,7 @@ def main(
                 cfg,
                 accelerator,
                 weight_dtype,
-                'init',
+                None,
                 'validation',
                 inference_dir,
             )
