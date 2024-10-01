@@ -1,9 +1,10 @@
 pretrained_model_name_or_path: lambdalabs/sd-image-variations-diffusers
-pretrained_unet_path: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/first-20k/checkpoint-20k
-pretrained_decoder_path: /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_29000_ckpt/model.safetensors
+pretrained_unet_path: checkpoint-23k
+pretrained_decoder_path: null
+# /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_29000_ckpt/model.safetensors
 revision: null
 train_dataset:
-  root_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5
+  root_dir: /mnt/task_wrapper/user_output/artifacts/lara/dataset/gobjaverse/gobjaverse.h5
   object_list: ./data_lists/single_obj.json
   invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
   num_views: 6
@@ -27,7 +28,6 @@ train_dataset:
   render_size: 256
 validation_dataset:
   root_dir: ${train_dataset.root_dir}
-  # root_dir: /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
   object_list: ./data_lists/single_obj.json
   invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
   num_views: 6

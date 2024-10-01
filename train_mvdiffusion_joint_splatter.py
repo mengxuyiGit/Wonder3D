@@ -633,14 +633,14 @@ def main(
         train_dataset, batch_size=cfg.train_batch_size, shuffle=True, num_workers=cfg.dataloader_num_workers,
         worker_init_fn=random_init, pin_memory=True, persistent_workers=True
     )
-    validation_dataloader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
-        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    )
-    validation_train_dataloader = torch.utils.data.DataLoader(
-        validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
-        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    )
+    # validation_dataloader = torch.utils.data.DataLoader(
+    #     validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+    #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    # )
+    # validation_train_dataloader = torch.utils.data.DataLoader(
+    #     validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+    #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    # )
 
     # Prepare everything with our `accelerator`.
     unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
@@ -744,38 +744,38 @@ def main(
             resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
    
-    ## add a log validation right before training, without any gradient updates
-    if accelerator.is_main_process:
-        # log_validation_inference(
-        #     validation_dataloader,
-        #     vae,
-        #     feature_extractor,
-        #     image_encoder,
-        #     unet,
-        #     cfg,
-        #     accelerator,
-        #     weight_dtype,
-        #     'init',
-        #     'validation',
-        #     vis_dir
-        # )
-        # st()
+    # ## add a log validation right before training, without any gradient updates
+    # if accelerator.is_main_process:
+    #     # log_validation_inference(
+    #     #     validation_dataloader,
+    #     #     vae,
+    #     #     feature_extractor,
+    #     #     image_encoder,
+    #     #     unet,
+    #     #     cfg,
+    #     #     accelerator,
+    #     #     weight_dtype,
+    #     #     'init',
+    #     #     'validation',
+    #     #     vis_dir
+    #     # )
+    #     # st()
      
-        log_validation_inference(
-            validation_train_dataloader,
-            vae,
-            feature_extractor,
-            image_encoder,
-            unet,
-            cfg,
-            accelerator,
-            weight_dtype,
-            'init',
-            'validation_train',
-            vis_dir
-        )
-        # print("log validation before training, saved to ", vis_dir)
-        # st()
+    #     log_validation_inference(
+    #         validation_train_dataloader,
+    #         vae,
+    #         feature_extractor,
+    #         image_encoder,
+    #         unet,
+    #         cfg,
+    #         accelerator,
+    #         weight_dtype,
+    #         'init',
+    #         'validation_train',
+    #         vis_dir
+    #     )
+    #     # print("log validation before training, saved to ", vis_dir)
+    #     # st()
         
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
@@ -1025,29 +1025,12 @@ def main(
 
                 if global_step % cfg.validation_steps == 0: # or (cfg.validation_sanity_check and global_step == 1):
                     if accelerator.is_main_process:
-                        if cfg.use_ema:
-                            # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                            ema_unet.store(unet.parameters())
-                            ema_unet.copy_to(unet.parameters())
-                        log_validation(
-                            validation_dataloader,
-                            vae,
-                            feature_extractor,
-                            image_encoder,
-                            unet,
-                            cfg,
-                            accelerator,
-                            weight_dtype,
-                            global_step,
-                            'validation',
-                            vis_dir
-                        )
-                        print("log validation, saved to ", vis_dir)
-                        
-                        inference_dir = os.path.join(vis_dir, f"inference_{global_step}")
-                        os.makedirs(inference_dir, exist_ok=True)
-                        # log_validation_inference(
-                        #     validation_train_dataloader,
+                        # if cfg.use_ema:
+                        #     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                        #     ema_unet.store(unet.parameters())
+                        #     ema_unet.copy_to(unet.parameters())
+                        # log_validation(
+                        #     validation_dataloader,
                         #     vae,
                         #     feature_extractor,
                         #     image_encoder,
@@ -1056,10 +1039,27 @@ def main(
                         #     accelerator,
                         #     weight_dtype,
                         #     global_step,
-                        #     'validation_train',
-                        #     inference_dir,
-                        # )                       
-                        # print("log validation inference, saved to ", inference_dir)
+                        #     'validation',
+                        #     vis_dir
+                        # )
+                        # print("log validation, saved to ", vis_dir)
+                        
+                        # inference_dir = os.path.join(vis_dir, f"inference_{global_step}")
+                        # os.makedirs(inference_dir, exist_ok=True)
+                        # # log_validation_inference(
+                        # #     validation_train_dataloader,
+                        # #     vae,
+                        # #     feature_extractor,
+                        # #     image_encoder,
+                        # #     unet,
+                        # #     cfg,
+                        # #     accelerator,
+                        # #     weight_dtype,
+                        # #     global_step,
+                        # #     'validation_train',
+                        # #     inference_dir,
+                        # # )                       
+                        # # print("log validation inference, saved to ", inference_dir)
                         if cfg.use_ema:
                             # Switch back to the original UNet parameters.
                             ema_unet.restore(unet.parameters())                        
