@@ -139,9 +139,18 @@ class gobjverse(torch.utils.data.Dataset):
             GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/images'
         
         print("GSO_root", GSO_root)
-        self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))[:2]
+        self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))# [:2]
         self.gso_elevation = 10
-        
+
+        # # only keep the gso ojects tha containing the following words
+        # self.path_gso_objects = [path for path in self.path_gso_objects if 'Rabbit' in path or 'backpack' in path or 'BEAR' in path]
+
+        # # self.path_gso_objects = ["gvgen/teaser/rose3_earth.png"]
+        # # self.path_gso_objects = sorted(glob.glob(f"gvgen/teaser/rose3_earth*.png"))# [:2]
+        # self.path_gso_objects = []
+        # self.path_gso_objects.append("gvgen/teaser/rose3_moon1.png")# [:2]
+        # self.path_gso_objects.append("gvgen/teaser/rose3.png")# [:2]
+        # # self.path_gso_objects = ["gvgen/teaser/rose3_moon1.png", "gvgen/teaser/.png"]
         
         # in the wild
         # self.path_gso_objects = ['/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples/bird.jpg']
@@ -515,8 +524,8 @@ class gobjverse(torch.utils.data.Dataset):
                 tar_eles = np.array([0]*6) if self.gso_elevation is None else np.array([self.gso_elevation]*6)
                 tar_c2ws = np.stack([orbit_camera(-elevation, azimuth, radius=self.cam_radius) for elevation, azimuth in zip(tar_eles, [0, 90, 180, 270, 30, 330])])
                 images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [path_gso]])
-                
-                pass # in the wild data
+                # if images.shape[-1] > 512:
+                    # reshape images
                 
             print("images shape:", images.shape)    
             

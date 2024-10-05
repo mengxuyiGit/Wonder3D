@@ -242,9 +242,15 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
 
         with torch.autocast("cuda"):
             # B*Nv images
+            batchify = True
             for guidance_scale in cfg.validation_guidance_scales:
+                
+                # latent_dir = "/home/xuyimeng/Repo/Wonder3D/outputs/inference/GSO_metric/nder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/baseline/fov39.6-cam1.3-ele10-12views/save_latents_3rd/inference"
+                latent_dir = save_dir
+              
                 out = pipeline(
-                    imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
+                    # imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
+                    imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, obj_name=os.path.join(latent_dir, f"{sn}-cfg{guidance_scale:.1f}"), **cfg.pipe_validation_kwargs
                 ).images
                 shape = out.shape
                 
@@ -287,7 +293,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                  
                     
-                    batchify = True
+                    
                     if not batchify:
                         splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                         gaussians = reconstruct_gaussians(splatter_data_no_batch)
@@ -306,10 +312,28 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     # assert  gaussians.shape == data["gaussians_gt"].shape
                     print("gaussians recon from BVD out v5: ", gaussians.shape)
                     
-                    # for sn, single_gaussian in zip(data['scene_name'], gaussians):
-                        # sn = f"{global_step}-{sn}" if global_step is not None else sn
-                    #     gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
-                      
+                    for sn, single_gaussian in zip(data['scene_name'], gaussians):
+                        sn = f"{global_step}-{sn}" if global_step is not None else sn
+                        gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
+                    
+                    
+                    # ### read existing gs from local 
+                    # if guidance_scale > 1:
+                    #     exit()
+                    # data = batch
+                    
+                    # # ply_path = "/hom("outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-white_normal/inference/rose3.png-gs-sample_cfg3.5.ply")e/xuyimeng/Repo/Wonder3D/outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3.png-gs-sample_cfg2.0.ply"
+                    # # ply_path = "outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3_earth4.png-gs-sample_cfg2.0.ply"
+                    # ply_path = "outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3_moon1.png-gs-sample_cfg2.0.ply"
+                    # gaussians = gs.load_ply(ply_path)
+                    # gaussians = gaussians[None].repeat( data["gaussians_gt"].shape[0], 1, 1)
+                    # gaussians = gaussians.to(unet.device)
+                    # # st()
+                    # scale_modifier = 0.01
+                    # gaussians[...,4:7] *= 0.0000001
+                    
+                    # # assert gaussians.shape == data["gaussians_gt"].shape
+                    
 
                     if not batchify:
                         gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
@@ -331,9 +355,14 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                             continue
                         
                         # save each scene rendering separately
-                        for sn, img in zip(data['scene_name'], v):
+                        for _i, (sn, img) in enumerate(zip(data['scene_name'], v)):
                             if 'normal' in k:
+                                # white bg normal
+                                img = img + (1 - gs_results['alpha'][_i]) * 1.0
+                                
+                                # to range [0,1]
                                 img = (img + 1) / 2
+                                
                             sn = f"{global_step}-{sn}" if global_step is not None else sn
                             save_image(img, os.path.join(save_dir, f"{sn}-{k}-sample_cfg{guidance_scale:.1f}.jpg"), nrow=img.shape[0], padding=0)
                         

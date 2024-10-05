@@ -1002,10 +1002,10 @@ def main(
 
                 if global_step % cfg.validation_steps == 0: # or (cfg.validation_sanity_check and global_step == 1):
                     if accelerator.is_main_process:
-                        # if cfg.use_ema:
-                        #     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
-                        #     ema_unet.store(unet.parameters())
-                        #     ema_unet.copy_to(unet.parameters())
+                        if cfg.use_ema:
+                            # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                            ema_unet.store(unet.parameters())
+                            ema_unet.copy_to(unet.parameters())
                         # log_validation(
                         #     validation_dataloader,
                         #     vae,

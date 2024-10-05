@@ -16,6 +16,7 @@ import inspect
 import warnings
 from typing import Callable, List, Optional, Union
 
+import os
 import PIL
 import torch
 import torch.nn.functional as F
@@ -417,6 +418,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: int = 1,
         normal_cond: Optional[Union[List[PIL.Image.Image], torch.FloatTensor]] = None,
+        obj_name: Optional[str] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -599,6 +601,14 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         if not output_type == "latent":
             if num_channels_latents == 8:
                 latents = torch.cat([latents[:, :4], latents[:, 4:]], dim=0)
+            if obj_name is not None:
+                if os.path.exists(f"{obj_name}_latents.pt"):
+                    latents = torch.load(f"{obj_name}_latents.pt")
+                    print(f"~~~~~loaded latents from {obj_name}_latents.pt")
+                else:
+                    # save the latent
+                    torch.save(latents, f"{obj_name}_latents.pt")
+                    print(f"saved latents to {obj_name}_latents.pt")
 
             image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
             image, has_nsfw_concept = self.run_safety_checker(image, device, image_embeddings.dtype)
