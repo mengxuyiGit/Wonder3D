@@ -190,13 +190,6 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
     images_gt_rendering = []
     for i, batch in enumerate(dataloader):
-        # (B, Nv, 3, H, W)
-        # imgs_in, colors_out, normals_out = batch['imgs_in'], batch['imgs_out'], batch['normals_out']
-        # # repeat  (2B, Nv, 3, H, W)
-        # imgs_in = torch.cat([imgs_in]*2, dim=0)
-        # imgs_out = torch.cat([normals_out, colors_out], dim=0)
-        
-        # TODO: cat all splatter attributes
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
         imgs_out_rendering = batch['imgs_out']
         
@@ -249,8 +242,8 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                 latent_dir = save_dir
               
                 out = pipeline(
-                    # imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
-                    imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, obj_name=os.path.join(latent_dir, f"{sn}-cfg{guidance_scale:.1f}"), **cfg.pipe_validation_kwargs
+                    imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
+                    # imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, obj_name=os.path.join(latent_dir, f"{sn}-cfg{guidance_scale:.1f}"), **cfg.pipe_validation_kwargs
                 ).images
                 shape = out.shape
                 
@@ -292,10 +285,8 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         sn = f"{global_step}-{sn}" if global_step is not None else sn
                         save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                  
-                    
-                    
                     if not batchify:
-                        splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                        # splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                         gaussians = reconstruct_gaussians(splatter_data_no_batch)
                         gaussians = gaussians.to(unet.device)[None]
                     else:
@@ -303,18 +294,15 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
                     
                     # gaussians = data["gaussians_gt"].to(unet.device)
-                    # st()
-                    # gs_path = "/home/xuyimeng/Repo/zero-1-to-G/runs/gso/workspace_gso/20240928-045636-GSO_2dgs-cam1.0-wild-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_2_of_Jenga_Classic_Game/splatters_mv.pt"
-                    # gs_path = '/home/xuyimeng/Repo/zero-1-to-G/runs/gso/workspace_gso/20240928-064930-lara-GSO_2dgs-cam1.0-wild-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_11pro_SL_TRX_FG/splatters_mv.pt'
-                    # gs_path = 'inferenced_gaussians/ikun.pt'
-                    # gaussians = torch.load(gs_path).reshape(14, -1).permute(1,0)[None].repeat(gaussians.shape[0], 1, 1)
                     # print("using GT gaussians []loaded")
                     # assert  gaussians.shape == data["gaussians_gt"].shape
                     print("gaussians recon from BVD out v5: ", gaussians.shape)
                     
-                    for sn, single_gaussian in zip(data['scene_name'], gaussians):
-                        sn = f"{global_step}-{sn}" if global_step is not None else sn
-                        gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
+                    save_ply = False
+                    if save_ply:
+                        for sn, single_gaussian in zip(data['scene_name'], gaussians):
+                            sn = f"{global_step}-{sn}" if global_step is not None else sn
+                            gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
                     
                     
                     # ### read existing gs from local 
@@ -333,7 +321,6 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     # gaussians[...,4:7] *= 0.0000001
                     
                     # # assert gaussians.shape == data["gaussians_gt"].shape
-                    
 
                     if not batchify:
                         gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))

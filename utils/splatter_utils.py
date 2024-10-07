@@ -37,23 +37,25 @@ sp_min_max_dict = {
 #     return x
 
 use_inverse_op = False
-def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu", range_01=True, use_2dgs=True, selected_attr_list=None, return_gassians=False, denormalization_cam_pose=None):
+def load_splatter_mv_ply_as_dict(splatter_dir, device="cpu", range_01=True, use_2dgs=True, selected_attr_list=None, return_gassians=False):
+    
+    # print("splatter_dir", splatter_dir)
     
     splatter_mv = torch.load(os.path.join(splatter_dir, "splatters_mv.pt"), map_location='cpu', weights_only=True).detach().cpu()
 
-    # denormalize the splatter 
-    if denormalization_cam_pose is not None:
-        # print("denormalization_cam_pose", denormalization_cam_pose)
-        xyz = splatter_mv[:3]
-        _, h, w = xyz.shape
-        xyz = einops.rearrange(xyz, 'c h w -> (h w) c')
-        xyz_1 = torch.cat([xyz, torch.ones_like(xyz[:, :1])], dim=1 )
-        xyz_1 = xyz_1 @ denormalization_cam_pose.T
-        xyz = xyz_1[:, :3] / xyz_1[:, 3:]
-        # reshape back
-        xyz = einops.rearrange(xyz, '(h w) c -> c h w', h=h, w=w)
-        splatter_mv[:3] = xyz
-        # print("xyz range", xyz.min(), xyz.max())
+    # # denormalize the splatter 
+    # if denormalization_cam_pose is not None:
+    #     # print("denormalization_cam_pose", denormalization_cam_pose)
+    #     xyz = splatter_mv[:3]
+    #     _, h, w = xyz.shape
+    #     xyz = einops.rearrange(xyz, 'c h w -> (h w) c')
+    #     xyz_1 = torch.cat([xyz, torch.ones_like(xyz[:, :1])], dim=1 )
+    #     xyz_1 = xyz_1 @ denormalization_cam_pose.T
+    #     xyz = xyz_1[:, :3] / xyz_1[:, 3:]
+    #     # reshape back
+    #     xyz = einops.rearrange(xyz, '(h w) c -> c h w', h=h, w=w)
+    #     splatter_mv[:3] = xyz
+    #     # print("xyz range", xyz.min(), xyz.max())
              
         
     # print("\nLoading splatters_mv:", splatter_mv.shape) # [1, 14, 384, 256]

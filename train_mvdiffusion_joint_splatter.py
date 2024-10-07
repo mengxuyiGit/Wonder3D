@@ -613,15 +613,15 @@ def main(
     #     **cfg.validation_train_dataset
     # )
 
-    # if cfg.validation_dataset.dataset_type == 'gso':
-    #     from mvdiffusion.data.provider_lara_splatter_optimized_GSO import gobjverse as GSOMVDiffusionDataset
-    #     validation_dataset = GSOMVDiffusionDataset(
-    #         **cfg.validation_dataset
-    #         )
-    # else:
-    #     validation_dataset = MVDiffusionDataset(
-    #         **cfg.validation_dataset
-    #     )
+    if cfg.validation_dataset.dataset_type == 'gso':
+        from mvdiffusion.data.provider_lara_splatter_optimized_GSO import gobjverse as GSOMVDiffusionDataset
+        validation_dataset = GSOMVDiffusionDataset(
+            **cfg.validation_dataset
+            )
+    else:
+        validation_dataset = MVDiffusionDataset(
+            **cfg.validation_dataset
+        )
 
     def random_init(id):
         torch.utils.data.get_worker_info().dataset.worker_init_open_db()
@@ -631,10 +631,10 @@ def main(
         train_dataset, batch_size=cfg.train_batch_size, shuffle=True, num_workers=cfg.dataloader_num_workers,
         worker_init_fn=random_init, pin_memory=True, persistent_workers=True
     )
-    # validation_dataloader = torch.utils.data.DataLoader(
-    #     validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
-    #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
-    # )
+    validation_dataloader = torch.utils.data.DataLoader(
+        validation_dataset, batch_size=cfg.validation_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
+        worker_init_fn=random_init, pin_memory=True, persistent_workers=True
+    )
     # validation_train_dataloader = torch.utils.data.DataLoader(
     #     validation_train_dataset, batch_size=cfg.validation_train_batch_size, shuffle=False, num_workers=cfg.dataloader_num_workers,
     #     worker_init_fn=random_init, pin_memory=True, persistent_workers=True
@@ -742,22 +742,23 @@ def main(
             resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
    
-    ## add a log validation right before training, without any gradient updates
-    if accelerator.is_main_process:
-        # log_validation_inference(
-        #     validation_dataloader,
-        #     vae,
-        #     feature_extractor,
-        #     image_encoder,
-        #     unet,
-        #     cfg,
-        #     accelerator,
-        #     weight_dtype,
-        #     'init',
-        #     'validation',
-        #     vis_dir
-        # )
-        print("log validation before training, saved to ", vis_dir)
+    # ## add a log validation right before training, without any gradient updates
+    # if accelerator.is_main_process:
+    #     log_validation_inference(
+    #         validation_dataloader,
+    #         vae,
+    #         feature_extractor,
+    #         image_encoder,
+    #         unet,
+    #         cfg,
+    #         accelerator,
+    #         weight_dtype,
+    #         'init',
+    #         'validation',
+    #         vis_dir
+    #     )
+    #     print("log validation before training, saved to ", vis_dir)
+    #     # st()
         
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)

@@ -91,6 +91,7 @@ class gobjverse(torch.utils.data.Dataset):
         dataset_type: str = "lara",
         splatter_mode: str = "2dgs",
         normalize_campose: bool = True,
+        data_base_dir: str = None,
         ):
         super(gobjverse, self).__init__()
 
@@ -145,21 +146,22 @@ class gobjverse(torch.utils.data.Dataset):
             i_test = i_test[:4] # save time
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
             
-            print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
+            print("Number of scenes [after split]", len(self.scenes_name))
             
         # splatter mv data
-        self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
+        # self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
         # self.splatter_root = "/home/xuyimeng/Repo/zero-1-to-G/runs/lara/workspace_debug/20240928-072650-load_GObj-finetuned_epoch1-fovy=39.6-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference"
+        # self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/lara/splatter_data_multi_gpu/*/*/splatters_mv_inference"
+        self.splatter_root = os.path.join(data_base_dir, "splatter_data_multi_gpu/*/*/splatters_mv_inference")
         print("Splatter root", self.splatter_root)
-        # st()
         
         ##################### LMDB CREATION ##################################################
         coverage = "overfit" if overfit else "whole"
-        # coverage = "debug_high_quality"
-        DATASET_BASE = '/mnt/kostas-graid/datasets/' # "/mnt/lingjie_cache/"
-        # DATASET_BASE = "/mnt/lingjie_cache/"
-        self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
         # self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_NOT_NORM_CAM_splatter_{self.split}_{coverage}.lmdb'
+        # self.lmdb_path = f'{data_base_dir}/data_path_splatter_{self.split}_{coverage}.lmdb'
+        self.lmdb_path = f'{data_base_dir}/corrumpted/data_path_splatter_{self.split}_{coverage}.lmdb' # with corrupted data
+        print("LMDB path", self.lmdb_path)
+        
         create_lmdb = False
         self.lmdbFiles = None
 
@@ -172,7 +174,7 @@ class gobjverse(torch.utils.data.Dataset):
                 with env.begin() as txn:
                     cursor = txn.cursor()
                     num_keys = sum(1 for _ in cursor)
-                    print(f"Number of keys in the database: {num_keys}")
+                    print(f"Number of keys in the LMDB database: {num_keys}")
                     # Check if the number of keys is less than required
                     if overfit:
                         create_lmdb = (num_keys < 1)
@@ -180,7 +182,7 @@ class gobjverse(torch.utils.data.Dataset):
                     else:
                         desired_num_keys = 100000 if self.split == 'train' else len(self.scenes_name)
                         create_lmdb = (num_keys < desired_num_keys)
-                        print(f"Number of keys in {self.split} split is less than {len(self.scenes_name)}. Creation is needed.") if create_lmdb else print(f"Number of keys in {self.split} split is enough: {num_keys}")
+                        print(f"Number of keys in LMDB {self.split} split is less than {desired_num_keys}. Creation is needed.") if create_lmdb else print(f"Number of keys in {self.split} split is enough: {num_keys}")
                         
                 env.close()
         
@@ -258,8 +260,13 @@ class gobjverse(torch.utils.data.Dataset):
         #         valid_objects = json.load(f)
         
         def check_scene(scene_path):
+            
             scene_name = scene_path.split('/')[-1].split('_')[-1]
-            print(scene_name) 
+            
+            if scene_name not in self.scenes_name:
+                return None
+            
+            # print(scene_name) 
             if scene_name in poor_quality_list:
                 print(f"[Poor-quality] {scene_name}")
                 return None
@@ -272,16 +279,22 @@ class gobjverse(torch.utils.data.Dataset):
             #     print(f"[Not in valid list] {scene_name}")
             #     return None
                 
-            if scene_name not in self.scenes_name:
-                return None
+           
             if not os.path.isdir(scene_path) or not os.path.exists(os.path.join(scene_path, "splatters_mv.pt")):
                 return None
+            
+            try:
+                # open splatters_mv.pt
+                splatters = torch.load(os.path.join(scene_path, "splatters_mv.pt"))
+            except:
+                print(f"[Error] {scene_name}")
+                return None
+            
             return scene_name, scene_path
 
         pattern = f"{self.splatter_root}/*"
         all_scene_paths = sorted(glob.glob(pattern))
         print("Number of scenes [initial]", len(all_scene_paths))
-        # st()
 
         final_scenes_name = []
         with ThreadPoolExecutor() as executor:
@@ -410,12 +423,8 @@ class gobjverse(torch.utils.data.Dataset):
             # cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
             # results['cam_poses'] = cam_poses # [V, 4, 4]
             
-            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
-        else:
-            # splatter_uid = "/mnt/kostas-graid/datasets/xuyimeng/lvis/splatter_data_2dgs/0/20240924-043723-lvis_2dgs-loss_render1.0_splatter1.0_lpips1.0-lr1e-10-Plat/splatters_mv_inference/0_00dfee50afad4153880d3a04d9a040aa"
-            _transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
-            denorm_transform = torch.inverse(_transform)
-            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr], denormalization_cam_pose=denorm_transform) # [-1,1]
+        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
+       
 
         normal_final = splatter_original_Channel_mvimage_dict[selected_attr]
         normal_final = einops.rearrange(normal_final, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
@@ -527,7 +536,6 @@ class gobjverse(torch.utils.data.Dataset):
         ### no need to read the below infos
         rendering_loss_2dgs = self.rendering_loss_2dgs
         # print("rendering_loss_2dgs", rendering_loss_2dgs)
-        denorm_transform = None
         if rendering_loss_2dgs:
         
             cam_poses = torch.from_numpy(tar_c2ws)
@@ -542,9 +550,6 @@ class gobjverse(torch.utils.data.Dataset):
                 cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
             else:
                 transform = torch.eye(4)
-                denorm_transform = torch.inverse(torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0]))
-                # denorm_transform = None
-                # print('Debug: use None denorm_transform')
 
             # opengl to colmap camera for gaussian renderer
             cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
@@ -598,9 +603,15 @@ class gobjverse(torch.utils.data.Dataset):
         # if wild_image.shape[-1] == 4:
         #     wild_image = wild_image[..., :3] + (1 - wild_image[..., -1:]) * 1
         # results['imgs_in'] = F.interpolate(wild_image.unsqueeze(0).permute(0,3,1,2), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
-           
         
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs, denormalization_cam_pose=denorm_transform) # [-1,1]
+        try:
+            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, return_gassians=rendering_loss_2dgs) # [-1,1]
+        except:
+            with open("corrupted_splatter_pt.txt", "a") as f:
+                f.write(f"{splatter_uid}\n")
+            replace_idx = np.random.randint(1000)
+            print(f"corrupted splatter: {splatter_uid}, replace with: ", replace_idx)
+            return self.__getitem_joint__(replace_idx)
 
         if rendering_loss_2dgs:
             results['gaussians_gt'] = splatter_original_Channel_mvimage_dict['gaussians_gt']
@@ -676,8 +687,9 @@ class gobjverse(torch.utils.data.Dataset):
                 data = self.__getitem_joint__(index)
             return data
         except:
-            print("load error ", self.all_objects[index%len(self.all_objects)] )
-            return self.backup_data
+            # print("load error ", self.all_objects[index%len(self.all_objects)] )
+            # return self.backup_data
+            return self.__getitem_joint__(0)
 
     
     def read_views(self, scene, src_views, scene_name, lmdb_chunk=None):

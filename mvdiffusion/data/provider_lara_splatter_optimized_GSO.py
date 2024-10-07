@@ -92,6 +92,7 @@ class gobjverse(torch.utils.data.Dataset):
         output_dir: str = None,
         normalize_campose: bool = True,
         GSO_root: str = None,
+        data_base_dir: str = None,
         ):
         super(gobjverse, self).__init__()
 
@@ -124,23 +125,23 @@ class gobjverse(torch.utils.data.Dataset):
         print("Number of scenes", len(self.metas.keys()))
         scenes_name = np.array(sorted(self.metas.keys())) # [:1000]
         
-        ### GSO
+        # ### GSO
     
-        if GSO_root is None:
-            # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele5.978-12views'
-            # GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.2-ele17.5'
-            GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.2-ele17.5-12views'
-            # GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele0-12views'
-            # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/view1'
-            # self.gso_elevation = 17.5
+        # if GSO_root is None:
+        #     # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele5.978-12views'
+        #     # GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.2-ele17.5'
+        #     GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.2-ele17.5-12views'
+        #     # GSO_root = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele0-12views'
+        #     # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/view1'
+        #     # self.gso_elevation = 17.5
             
-            ### in the wild
-            # GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples'
-            GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/images'
+        #     ### in the wild
+        #     # GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples'
+        #     GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/images'
         
-        print("GSO_root", GSO_root)
-        self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))# [:2]
-        self.gso_elevation = 10
+        # print("GSO_root", GSO_root)
+        # self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))# [:2]
+        # self.gso_elevation = 10
 
         # # only keep the gso ojects tha containing the following words
         # self.path_gso_objects = [path for path in self.path_gso_objects if 'Rabbit' in path or 'backpack' in path or 'BEAR' in path]
@@ -161,9 +162,9 @@ class gobjverse(torch.utils.data.Dataset):
         # self.path_gso_objects.append("gvgen/ikun_rgba.png")
         # self.path_gso_objects = ["gvgen/minion.png"]
 
-        print("objects to eval: ", self.path_gso_objects)
+        # print("objects to eval: ", self.path_gso_objects)
         
-        self.debug_GSO = True
+        self.debug_GSO = False
         
         # debug = False
         if debug:
@@ -173,7 +174,7 @@ class gobjverse(torch.utils.data.Dataset):
             self.scenes_name = self.metas['splits']['test'][:].astype(str) #self.metas['splits'][self.split]
         else:
             n_scenes = 300000
-            i_test = np.arange(len(scenes_name))[::10][:len(self.path_gso_objects)] # only test 10 scenes
+            i_test = np.arange(len(scenes_name))[::10][:10] # only test 10 scenes
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
             
@@ -185,15 +186,21 @@ class gobjverse(torch.utils.data.Dataset):
                 
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
             
-            print("Number of scenes [before reading splatter mv]", len(self.scenes_name))
+            print("Number of scenes [after split]", len(self.scenes_name))
             
         # splatter mv data
-        self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
+        self.splatter_root = os.path.join(data_base_dir, "splatter_data_multi_gpu/*/*/splatters_mv_inference")
+        print("Splatter root", self.splatter_root)
         
         ##################### LMDB CREATION ##################################################
+        # coverage = "overfit" if overfit else "whole"
+        # DATASET_BASE = '/mnt/kostas-graid/datasets/' # "/mnt/lingjie_cache/"
+        # self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
+        
         coverage = "overfit" if overfit else "whole"
-        DATASET_BASE = '/mnt/kostas-graid/datasets/' # "/mnt/lingjie_cache/"
-        self.lmdb_path = f'{DATASET_BASE}/xuyimeng/lara/data_path_splatter_{self.split}_{coverage}.lmdb'
+        self.lmdb_path = f'{data_base_dir}/data_path_splatter_{self.split}_{coverage}.lmdb'
+        print("LMDB path", self.lmdb_path)
+        
         create_lmdb = False
         self.lmdbFiles = None
         

@@ -1,9 +1,11 @@
 pretrained_model_name_or_path: lambdalabs/sd-image-variations-diffusers
-pretrained_unet_path: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/first-20k/checkpoint-20k
+# pretrained_unet_path: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/first-20k/checkpoint-20k
+pretrained_unet_path: /home/xuyimeng/Repo/Wonder3D/outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu8-all_trainable-3rd/unet-6000
 pretrained_decoder_path: /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_29000_ckpt/model.safetensors
+# /mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/lara/splatter_data_multi_gpu/
 revision: null
 train_dataset:
-  root_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara/dataset/gobjaverse/gobjaverse.h5
+  root_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/gobjaverse/gobjaverse.h5
   object_list: ./data_lists/single_obj.json
   invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
   num_views: 6
@@ -23,7 +25,8 @@ train_dataset:
   read_first_view_only: true
   render_views: 10
   dataset_type: lara
-  normalize_campose: true
+  data_base_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/lara
+  normalize_campose: false
   render_size: 256
 validation_dataset:
   root_dir: ${train_dataset.root_dir}
@@ -45,6 +48,7 @@ validation_dataset:
   read_first_view_only: false
   render_views: 20
   dataset_type: 'gso'
+  data_base_dir: ${train_dataset.data_base_dir}
   normalize_campose: ${train_dataset.normalize_campose}
   render_size: ${train_dataset.render_size}
 validation_train_dataset:
@@ -66,16 +70,17 @@ validation_train_dataset:
   read_first_view_only: false
   render_views: 20
   dataset_type: ${train_dataset.dataset_type}
+  data_base_dir: ${train_dataset.data_base_dir}
   normalize_campose: ${train_dataset.normalize_campose}
   render_size: ${train_dataset.render_size}
   
 # output_dir: outputs/splatter/normalize_cam_false/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable
 # output_dir: outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu8-all_trainable-2nd
-output_dir: outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu8-all_trainable-3rd
+output_dir: outputs/splatter_normalize_cam_false/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ64-all_trainable-resume_normalizeTRUE
 fovy: 39.6
 
 seed: 42
-train_batch_size: 8
+train_batch_size: 16
 validation_batch_size: 8
 validation_train_batch_size: 8
 max_train_steps: 20000
