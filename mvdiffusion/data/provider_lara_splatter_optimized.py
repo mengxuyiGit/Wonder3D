@@ -92,6 +92,7 @@ class gobjverse(torch.utils.data.Dataset):
         splatter_mode: str = "2dgs",
         normalize_campose: bool = True,
         data_base_dir: str = None,
+        fixed_input_views: list = None,
         ):
         super(gobjverse, self).__init__()
 
@@ -207,10 +208,14 @@ class gobjverse(torch.utils.data.Dataset):
             print("render_views", self.render_views)
 
         self.read_first_view_only = read_first_view_only
+        # if read_first_view_only:
+        #     self.fixed_input_views = [0] # same elevation
+        # else:
+        #     self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
         if read_first_view_only:
-            self.fixed_input_views = [0] # same elevation
+            self.fixed_input_views = fixed_input_views[0:1] # same elevation
         else:
-            self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
+            self.fixed_input_views = fixed_input_views
     
     def worker_init_open_db(self):
         np.random.seed(torch.initial_seed() % 2**32)
@@ -343,19 +348,6 @@ class gobjverse(torch.utils.data.Dataset):
         scene_info = self.metas[scene_name]
 
         results = {}
-
-        # if self.split=='train' and self.n_group > 1:
-        #     # print("111")
-        #     src_view_id = [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
-        #     view_id = src_view_id + [random.choices(scene_info['groups'][f'groups_{self.n_group}_{i}'])[0] for i in torch.randperm(self.n_group).tolist()]
-        # elif self.n_group == 1:
-        #     # print("222")
-        #     src_view_id = [scene_info['groups'][f'groups_4_{i}'][0] for i in range(1)]
-        #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
-        # else:
-        #     # print("333")
-        #     src_view_id = [scene_info['groups'][f'groups_{self.n_group}_{i}'][0] for i in range(self.n_group)]
-        #     view_id = src_view_id + [scene_info['groups'][f'groups_4_{i}'][-1] for i in range(4)]
         
         view_id = self.fixed_input_views # + np.random.permutation(np.arange(0,38))[:(self.num_views-self.opt.num_input_views)].tolist()
         assert len(view_id) == self.num_views or self.read_first_view_only
@@ -366,45 +358,11 @@ class gobjverse(torch.utils.data.Dataset):
         tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, view_id, scene_name, lmdb_chunk=chunk_idx)
     
         images = torch.from_numpy(tar_img).permute(0,3,1,2) # [V, C, H, W]
-        # normals = torch.from_numpy(tar_nrms).permute(0,3,1,2) # [V, C, H, W]
-        # # depths = tar_img #[TODO: lara processed data has no depth]
-        # masks = torch.from_numpy(tar_msks).to(images.dtype) #.unsqueeze(1) # [V, C, H, W]
-        # cam_poses = torch.from_numpy(tar_c2ws)
-        
-
-        # # normalized camera feats as in paper (transform the first pose to a fixed position)
-        # radius = torch.norm(cam_poses[0, :3, 3])
-        # cam_poses[:, :3, 3] *= self.cam_radius / radius
-        # transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
-        # cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
-        
-        # # opengl to colmap camera for gaussian renderer
-        # cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-        # results['cam_poses'] = cam_poses # [V, 4, 4]
-
-
-        # # rotate normal!
-        # normal_final = normals
-        # V, _, H, W = normal_final.shape # [1, h, w, 3]
-        # normal_final = (transform[:3, :3].unsqueeze(0) @ normal_final.permute(0, 2, 3, 1).reshape(-1, 3, 1)).reshape(V, H, W, 3).permute(0, 3, 1, 2).contiguous()
-        # # normalize normal
-        # normal_final = normal_final / (torch.norm(normal_final, dim=1, keepdim=True) + 1e-6)
-        # # AFTER rotating normal, map normal to range [0,1]
-        # normal_final = normal_final / 2.0 + 0.5
-        # # make the bg of normal map to img bg
-        # # print("bg_color", bg_colors.min(), bg_colors.max(), "normal_final", normal_final.min(), normal_final.max())
-        # normal_final = normal_final * masks.unsqueeze(1) + (torch.from_numpy(bg_colors)[...,None,None] - masks.unsqueeze(1)) # ! if you would like predict depth; modify here
-
         
         # read splatter
         splatter_uid = self.lmdbFiles.get_data(scene_name)
      
-        # if self.overfit and self.split == 'test':
-        #     selected_attr = gt_attr_keys[index%len(gt_attr_keys)]
-        # else:
         selected_attr = random.choice(gt_attr_keys)
-        # selected_attr = 'rgbs'
-
         
         if self.normalize_campose:
             # assume the splatter is normalized to cam[0], we now have to revserse the normalization
@@ -414,15 +372,10 @@ class gobjverse(torch.utils.data.Dataset):
             radius = torch.norm(cam_poses[0, :3, 3])
             # print("radius", radius)
             cam_poses[:, :3, 3] *= self.cam_radius / radius # normalize to cam_radius
-
           
             transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
             cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
         
-            # # opengl to colmap camera for gaussian renderer
-            # cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
-            # results['cam_poses'] = cam_poses # [V, 4, 4]
-            
         splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
        
 
@@ -447,7 +400,6 @@ class gobjverse(torch.utils.data.Dataset):
         # results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
 
         if self.read_first_view_only:
-            # [  0.,  90., 180., 270.,  30., 330.])
             assert len(tar_eles) == 1
             elevations = torch.tensor([tar_eles[0]] * 6)
             azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.])
@@ -609,7 +561,8 @@ class gobjverse(torch.utils.data.Dataset):
         except:
             with open("corrupted_splatter_pt.txt", "a") as f:
                 f.write(f"{splatter_uid}\n")
-            replace_idx = np.random.randint(1000)
+            # replace_idx = np.random.randint(1000)
+            replace_idx = index % 1000
             print(f"corrupted splatter: {splatter_uid}, replace with: ", replace_idx)
             return self.__getitem_joint__(replace_idx)
 
@@ -639,8 +592,8 @@ class gobjverse(torch.utils.data.Dataset):
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # not including the rendering views
         
         # print("elevations_cond", elevations_cond)
-        # print("elevations", elevations)
-        # print("azimuths", azimuths)
+        print("elevations", elevations)
+        print("azimuths", azimuths)
         # # print("view_id", view_id)
         # # tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, [0], scene_name)
         # # print("elevations", elevations  - tar_eles)
