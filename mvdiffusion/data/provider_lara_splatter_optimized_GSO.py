@@ -93,6 +93,7 @@ class gobjverse(torch.utils.data.Dataset):
         normalize_campose: bool = True,
         GSO_root: str = None,
         data_base_dir: str = None,
+        fixed_input_views: list = None,
         ):
         super(gobjverse, self).__init__()
 
@@ -126,6 +127,7 @@ class gobjverse(torch.utils.data.Dataset):
         scenes_name = np.array(sorted(self.metas.keys())) # [:1000]
         
         # ### GSO
+        self.debug_GSO = False
     
         # if GSO_root is None:
         #     # GSO_root  = '/home/xuyimeng/Data/gso/liuyuan/fov39.6-cam1.3-ele5.978-12views'
@@ -139,9 +141,11 @@ class gobjverse(torch.utils.data.Dataset):
         #     # GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/examples'
         #     GSO_root = '/mnt/kostas-graid/sw/envs/chenwang/workspace/InstantMesh-geco/images'
         
-        # print("GSO_root", GSO_root)
-        # self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))# [:2]
-        # self.gso_elevation = 10
+        if GSO_root is not None:
+            print("GSO_root", GSO_root)
+            self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))# [:2]
+            self.gso_elevation = 10
+            self.debug_GSO = True
 
         # # only keep the gso ojects tha containing the following words
         # self.path_gso_objects = [path for path in self.path_gso_objects if 'Rabbit' in path or 'backpack' in path or 'BEAR' in path]
@@ -164,7 +168,7 @@ class gobjverse(torch.utils.data.Dataset):
 
         # print("objects to eval: ", self.path_gso_objects)
         
-        self.debug_GSO = False
+        
         
         # debug = False
         if debug:
@@ -178,7 +182,7 @@ class gobjverse(torch.utils.data.Dataset):
             i_train = np.array([i for i in np.arange(len(scenes_name)) if
                             (i not in i_test)])[:n_scenes]
             
-            if overfit:
+            if overfit or self.debug_GSO:
                 i_test = [90]
                 i_train = i_test*1000
                 # i_test = i_test*2
@@ -247,13 +251,19 @@ class gobjverse(torch.utils.data.Dataset):
             print("render_views", self.render_views)
 
         self.read_first_view_only = read_first_view_only
+        # if read_first_view_only:
+        #     self.fixed_input_views = [0] # same elevation
+        # else:
+        #     self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
         if read_first_view_only:
-            self.fixed_input_views = [0] # same elevation
+                self.fixed_input_views = fixed_input_views[0:1] # same elevation
         else:
-            self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
+            self.fixed_input_views = fixed_input_views
         
         if self.debug_GSO:
             self.scenes_name = self.scenes_name[:len(self.path_gso_objects)]
+        print("Number of scenes [final]", len(self.scenes_name))
+        # st()
     
     
     def worker_init_open_db(self):
@@ -643,10 +653,10 @@ class gobjverse(torch.utils.data.Dataset):
             azimuths = torch.as_tensor(tar_azis[:self.num_views]).float() 
  
        
-        # if self.debug_GSO:
-        #     elevations_cond = torch.zeros_like(elevations_cond) 
-        # else:
-        print("use original elevations")
+        if self.debug_GSO:
+            elevations_cond = torch.zeros_like(elevations_cond) 
+        else:
+            print("use original elevations")
         elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # not including the rendering views
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # not including the rendering views
         
