@@ -118,6 +118,9 @@ class TrainingConfig:
 
     drop_type: str
     no_diffision_prior: bool
+    rendering_loss_2dgs: bool
+    zero_terminal_snr: bool
+
 
 
 def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg: TrainingConfig, accelerator, weight_dtype, global_step, name, save_dir):
@@ -235,6 +238,14 @@ def main(
 
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="scheduler")
+    if cfg.zero_terminal_snr:
+        from utils.training_utils import rescale_zero_terminal_snr
+        noise_scheduler = DDPMScheduler.from_config(noise_scheduler.config,  timestep_spacing="trailing") # zero terminal SNR    
+        noise_scheduler.betas = rescale_zero_terminal_snr(noise_scheduler.betas)
+        print("zero terminal SNR")
+        
+        
+        
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="image_encoder", revision=cfg.revision)
     feature_extractor = CLIPImageProcessor.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="feature_extractor", revision=cfg.revision)
     vae = AutoencoderKL.from_pretrained(cfg.pretrained_model_name_or_path, subfolder="vae", revision=cfg.revision)
@@ -401,6 +412,10 @@ def main(
         from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
     else:
         from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
+    
+    
+    # wait by different processes id
+    time.sleep(accelerator.local_process_index * 5)
 
     # Get the training dataset
     train_dataset = MVDiffusionDataset(
@@ -738,6 +753,7 @@ def main(
                             'validation',
                             vis_dir
                         )
+                        print("validation saved to ", vis_dir)
                         # log_validation(
                         #     validation_train_dataloader,
                         #     vae,

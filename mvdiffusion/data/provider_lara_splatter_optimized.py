@@ -376,7 +376,15 @@ class gobjverse(torch.utils.data.Dataset):
             transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, self.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses[0])
             cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
         
-        splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
+
+        try:
+            splatter_original_Channel_mvimage_dict = load_splatter_mv_ply_as_dict(splatter_uid, selected_attr_list=[selected_attr]) # [-1,1]
+        except:
+            with open("corrupted_splatter_pt.txt", "a") as f:
+                f.write(f"{splatter_uid}\n")
+            replace_idx = index % 1000
+            print(f"corrupted splatter: {splatter_uid}, replace with: ", replace_idx)
+            return self.__getitem_mix__(replace_idx)
        
 
         normal_final = splatter_original_Channel_mvimage_dict[selected_attr]
