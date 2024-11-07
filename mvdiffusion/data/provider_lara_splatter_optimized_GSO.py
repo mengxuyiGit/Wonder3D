@@ -144,7 +144,8 @@ class gobjverse(torch.utils.data.Dataset):
         if GSO_root is not None:
             print("GSO_root", GSO_root)
             self.path_gso_objects = sorted(glob.glob(f"{GSO_root}/*"))# [:2]
-            self.gso_elevation = 10
+            # self.gso_elevation = 10
+            self.gso_elevation = 0
             self.debug_GSO = True
 
         # # only keep the gso ojects tha containing the following words
@@ -185,7 +186,6 @@ class gobjverse(torch.utils.data.Dataset):
             if overfit or self.debug_GSO:
                 i_test = [90]
                 i_train = i_test*1000
-                # i_test = i_test*2
                 i_test = i_test*len(self.path_gso_objects) if self.debug_GSO else i_test*2
                 
             self.scenes_name = scenes_name[i_train] if self.split=='train' else scenes_name[i_test]
@@ -234,8 +234,8 @@ class gobjverse(torch.utils.data.Dataset):
                 self.create_lmdb_database()
         ########################################################################
 
-        # read all keys from lmdb
-        self.read_all_keys()
+        # # read all keys from lmdb
+        # self.read_all_keys()
        
         self.b2c = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float32)
         self.n_group = 4 # cfg.n_group
@@ -262,8 +262,10 @@ class gobjverse(torch.utils.data.Dataset):
         
         if self.debug_GSO:
             self.scenes_name = self.scenes_name[:len(self.path_gso_objects)]
+            # resume_index = 10
+            # self.scenes_name = self.scenes_name[resume_index:]
+            # self.path_gso_objects = self.path_gso_objects[resume_index:]
         print("Number of scenes [final]", len(self.scenes_name))
-        # st()
     
     
     def worker_init_open_db(self):
@@ -652,17 +654,13 @@ class gobjverse(torch.utils.data.Dataset):
             elevations = torch.as_tensor(tar_eles[:self.num_views]).float()
             azimuths = torch.as_tensor(tar_azis[:self.num_views]).float() 
  
-       
-        if self.debug_GSO:
-            elevations_cond = torch.zeros_like(elevations_cond) 
-        else:
-            print("use original elevations")
+    
         elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # not including the rendering views
         azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # not including the rendering views
         
-        # print("elevations_cond", elevations_cond)
-        # print("elevations", elevations)
-        # print("azimuths", azimuths)
+        print("elevations_cond", elevations_cond)
+        print("elevations", elevations)
+        print("azimuths", azimuths)
         # # print("view_id", view_id)
         # # tar_img, bg_colors, tar_nrms, tar_msks, tar_c2ws, tar_w2cs, tar_ixts, tar_eles, tar_azis = self.read_views(scene_info, [0], scene_name)
         # # print("elevations", elevations  - tar_eles)
