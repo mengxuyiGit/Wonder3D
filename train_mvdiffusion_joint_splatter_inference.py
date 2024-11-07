@@ -189,6 +189,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
     images_gt_rendering = []
+
     for i, batch in enumerate(dataloader):
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
         imgs_out_rendering = batch['imgs_out']
@@ -209,8 +210,6 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         try:
             imgs_out = torch.cat([batch[f"{splatter_attr}_out"] for splatter_attr in gt_attr_keys], dim=0)
             imgs_out = rearrange(imgs_out, "B Nv C H W -> (B Nv) C H W")
-            # imgs_out = rearrange_images(imgs_out)
-            # images_gt.append(imgs_out)
         except:
             pass
             
@@ -237,125 +236,241 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
             # B*Nv images
             batchify = True
             for guidance_scale in cfg.validation_guidance_scales:
-                
-                # latent_dir = "/home/xuyimeng/Repo/Wonder3D/outputs/inference/GSO_metric/nder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/baseline/fov39.6-cam1.3-ele10-12views/save_latents_3rd/inference"
-                latent_dir = save_dir
-              
-                out = pipeline(
-                    imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
-                    # imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, obj_name=os.path.join(latent_dir, f"{sn}-cfg{guidance_scale:.1f}"), **cfg.pipe_validation_kwargs
-                ).images
-                shape = out.shape
-                
-                # print("Pipe inference time: ", time.time() - begin_time)
-                # begin_time = time.time()
-                
-                # ###### old ######
-                # out0, out1 = out[:shape[0]//2], out[shape[0]//2:] # TODO: 2 -> 5
-                # out = []
-                # for ii in range(shape[0]//2): # 
-                #     out.append(out0[ii])
-                #     out.append(out1[ii])
-                # out = torch.stack(out, dim=0)
-                
-                ###### new ######
-                # st()
-               
-                out_chunks = torch.chunk(out, num_domains, dim=0)
-                out = []
-                for ii in range(shape[0]//num_domains): 
-                    # out.append(out0[ii])
-                    # out.append(out1[ii])
-                    for _out_i in out_chunks:
-                        out.append(_out_i[ii])  
-                out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
-                
 
-                # images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
-               
-
-                if rendering_loss_2dgs:
-                    data = batch
-
-                    splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
-                    
-                    # for i, sn in enumerate(batch['scene_name']):
-                        # save_image(out[i], os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
-                    for sn, scene_splatter in zip(data['scene_name'], splatters_bdv):
-                        sn = f"{global_step}-{sn}" if global_step is not None else sn
-                        save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
+                # check whether ply files exist
+                # if does not exist, do the following inference
+                # if exists, skip the following inference, directly save video
+                do_inference = False
+                for sn in batch['scene_name']:
+                    sn = f"{global_step}-{sn}" if global_step is not None else sn
+                    ply_file = os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply")
+                    if not os.path.exists(ply_file):
+                        do_inference = True
+                        break
+                    else:
+                        print(f"Skip inference for {sn} with guidance scale {guidance_scale}")
                  
-                    if not batchify:
-                        # splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
-                        gaussians = reconstruct_gaussians(splatter_data_no_batch)
-                        gaussians = gaussians.to(unet.device)[None]
-                    else:
-                        splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
-                        gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
+                # st()
+                if do_inference:
+                
+                    # latent_dir = "/home/xuyimeng/Repo/Wonder3D/outputs/inference/GSO_metric/nder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/baseline/fov39.6-cam1.3-ele10-12views/save_latents_3rd/inference"
+                    latent_dir = save_dir
+                
+                    out = pipeline(
+                        imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
+                        # imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, obj_name=os.path.join(latent_dir, f"{sn}-cfg{guidance_scale:.1f}"), **cfg.pipe_validation_kwargs
+                    ).images
+                    shape = out.shape
                     
-                    # gaussians = data["gaussians_gt"].to(unet.device)
-                    # print("using GT gaussians []loaded")
-                    # assert  gaussians.shape == data["gaussians_gt"].shape
-                    print("gaussians recon from BVD out v5: ", gaussians.shape)
+                    # print("Pipe inference time: ", time.time() - begin_time)
+                    # begin_time = time.time()
                     
-                    save_ply = False
-                    if save_ply:
-                        for sn, single_gaussian in zip(data['scene_name'], gaussians):
-                            sn = f"{global_step}-{sn}" if global_step is not None else sn
-                            gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
+                    # ###### old ######
+                    # out0, out1 = out[:shape[0]//2], out[shape[0]//2:] # TODO: 2 -> 5
+                    # out = []
+                    # for ii in range(shape[0]//2): # 
+                    #     out.append(out0[ii])
+                    #     out.append(out1[ii])
+                    # out = torch.stack(out, dim=0)
                     
+                    ###### new ######
+                    # st()
+                
+                    out_chunks = torch.chunk(out, num_domains, dim=0)
+                    out = []
+                    for ii in range(shape[0]//num_domains): 
+                        # out.append(out0[ii])
+                        # out.append(out1[ii])
+                        for _out_i in out_chunks:
+                            out.append(_out_i[ii])  
+                    out = torch.stack(out, dim=0) # [B * NDomain * V, C, output_size, output_size]
                     
-                    # ### read existing gs from local 
-                    # if guidance_scale > 1:
-                    #     exit()
-                    # data = batch
-                    
-                    # # ply_path = "/hom("outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-white_normal/inference/rose3.png-gs-sample_cfg3.5.ply")e/xuyimeng/Repo/Wonder3D/outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3.png-gs-sample_cfg2.0.ply"
-                    # # ply_path = "outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3_earth4.png-gs-sample_cfg2.0.ply"
-                    # ply_path = "outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3_moon1.png-gs-sample_cfg2.0.ply"
-                    # gaussians = gs.load_ply(ply_path)
-                    # gaussians = gaussians[None].repeat( data["gaussians_gt"].shape[0], 1, 1)
-                    # gaussians = gaussians.to(unet.device)
-                    # # st()
-                    # scale_modifier = 0.01
-                    # gaussians[...,4:7] *= 0.0000001
-                    
-                    # # assert gaussians.shape == data["gaussians_gt"].shape
 
-                    if not batchify:
-                        gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
-                    else:
-                        gs_results_batch = defaultdict(list)
-                        for _gaussian, cam_view, cam_view_proj, cam_pos, fovy in zip(gaussians, data['cam_view'].to(unet.device), data['cam_view_proj'].to(unet.device), data['cam_poses'].to(unet.device), data['fovy'].to(unet.device)):
-                            gs_results = gs.render(gaussians=_gaussian[None], cam_view=cam_view[None], cam_view_proj=cam_view_proj[None], cam_pos=cam_pos[None], fovy=fovy[None])
-                            for k, v in gs_results.items():
-                                gs_results_batch[k].append(v)
-                        for k, v in gs_results_batch.items():
-                            gs_results_batch[k] = torch.cat(v, dim=0)
-                        gs_results = gs_results_batch
+                    # images_pred[f"{name}-sample_cfg{guidance_scale:.1f}"].append(out) 
+                
+
+                    if rendering_loss_2dgs:
+                        data = batch
+
+                        splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
+                        
+                        # for i, sn in enumerate(batch['scene_name']):
+                            # save_image(out[i], os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
+                        for sn, scene_splatter in zip(data['scene_name'], splatters_bdv):
+                            sn = f"{global_step}-{sn}" if global_step is not None else sn
+                            save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                     
-                    # print("rendering time: ", time.time() - begin_time)
+                        if not batchify:
+                            # splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                            gaussians = reconstruct_gaussians(splatter_data_no_batch)
+                            gaussians = gaussians.to(unet.device)[None]
+                        else:
+                            splatter_data_no_batch = {k: rearrange(splatters_bdv[:,i], "b (m n) c h w -> b c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
+                            gaussians = reconstruct_gaussians_batch(splatter_data_no_batch).to(unet.device)
+                        
+                        # gaussians = data["gaussians_gt"].to(unet.device)
+                        # print("using GT gaussians []loaded")
+                        # assert  gaussians.shape == data["gaussians_gt"].shape
+                        print("gaussians recon from BVD out v5: ", gaussians.shape)
+                        
+                        save_ply = False
+                        if save_ply:
+                            for sn, single_gaussian in zip(data['scene_name'], gaussians):
+                                sn = f"{global_step}-{sn}" if global_step is not None else sn
+                                gs.save_ply(single_gaussian[None], os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply"), compatible=True)
+                        
+                        
+                        # ### read existing gs from local 
+                        # if guidance_scale > 1:
+                        #     exit()
+                        # data = batch
+                        
+                        # # ply_path = "/hom("outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-white_normal/inference/rose3.png-gs-sample_cfg3.5.ply")e/xuyimeng/Repo/Wonder3D/outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3.png-gs-sample_cfg2.0.ply"
+                        # # ply_path = "outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3_earth4.png-gs-sample_cfg2.0.ply"
+                        # ply_path = "outputs/inference/teaser/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable-3rd/teaser-ply/inference-renderings/rose3_moon1.png-gs-sample_cfg2.0.ply"
+                        # gaussians = gs.load_ply(ply_path)
+                        # gaussians = gaussians[None].repeat( data["gaussians_gt"].shape[0], 1, 1)
+                        # gaussians = gaussians.to(unet.device)
+                        # # st()
+                        # scale_modifier = 0.01
+                        # gaussians[...,4:7] *= 0.0000001
+                        
+                        # # assert gaussians.shape == data["gaussians_gt"].shape
+
+                        if not batchify:
+                            gs_results = gs.render(gaussians=gaussians, cam_view=data['cam_view'].to(unet.device), cam_view_proj=data['cam_view_proj'].to(unet.device), cam_pos=data['cam_poses'].to(unet.device), fovy=data['fovy'].to(unet.device))
+                        else:
+                            gs_results_batch = defaultdict(list)
+                            for _gaussian, cam_view, cam_view_proj, cam_pos, fovy in zip(gaussians, data['cam_view'].to(unet.device), data['cam_view_proj'].to(unet.device), data['cam_poses'].to(unet.device), data['fovy'].to(unet.device)):
+                                gs_results = gs.render(gaussians=_gaussian[None], cam_view=cam_view[None], cam_view_proj=cam_view_proj[None], cam_pos=cam_pos[None], fovy=fovy[None])
+                                for k, v in gs_results.items():
+                                    gs_results_batch[k].append(v)
+
+                            for k, v in gs_results_batch.items():
+                                gs_results_batch[k] = torch.cat(v, dim=0)
+                            gs_results = gs_results_batch
+                        
+                        # print("rendering time: ", time.time() - begin_time)
                     
                     
-                    for k, v in gs_results.items():
-                        if 'dist' in k or 'depth' in k or 'alpha' in k:
+                        for k, v in gs_results.items():
+                            if 'dist' in k or 'depth' in k or 'alpha' in k:
+                                continue
+                            
+                            # save each scene rendering separately
+                            for _i, (sn, img) in enumerate(zip(data['scene_name'], v)):
+                                if 'normal' in k:
+                                    # white bg normal
+                                    img = img + (1 - gs_results['alpha'][_i]) * 1.0
+                                    
+                                    # to range [0,1]
+                                    img = (img + 1) / 2
+                                    
+                                sn = f"{global_step}-{sn}" if global_step is not None else sn
+                                save_image(img, os.path.join(save_dir, f"{sn}-{k}-sample_cfg{guidance_scale:.1f}.jpg"), nrow=img.shape[0], padding=0)
+
+                            
+                            # v = rearrange(v, "B V C H W -> (B V) C H W")
+                            # gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
+
+                else:
+                    # load ply files
+                    gaussians = []
+                    for sn in batch['scene_name']:
+                        sn = f"{global_step}-{sn}" if global_step is not None else sn
+                        ply_file = os.path.join(save_dir, f"{sn}-gs-sample_cfg{guidance_scale:.1f}.ply")
+                        if not os.path.exists(ply_file):
                             continue
                         
-                        # save each scene rendering separately
-                        for _i, (sn, img) in enumerate(zip(data['scene_name'], v)):
-                            if 'normal' in k:
-                                # white bg normal
-                                img = img + (1 - gs_results['alpha'][_i]) * 1.0
-                                
-                                # to range [0,1]
-                                img = (img + 1) / 2
-                                
-                            sn = f"{global_step}-{sn}" if global_step is not None else sn
-                            save_image(img, os.path.join(save_dir, f"{sn}-{k}-sample_cfg{guidance_scale:.1f}.jpg"), nrow=img.shape[0], padding=0)
+                        gaussians.append(gs.load_ply(ply_file))
+                    gaussians = torch.stack(gaussians, dim=0).to(unet.device)
+                    print("gaussians load from ply: ", gaussians.shape)
                         
-                        # v = rearrange(v, "B V C H W -> (B V) C H W")
-                        # gs_renderings[f"{k}-sample_cfg{guidance_scale:.1f}"].append(v)
+                
+                
+                render_video = True
+                if render_video:
+                
+                    # render video
+                    for _i, (sn, _gaussian) in enumerate(zip(batch['scene_name'], gaussians)):
+                        video_name = os.path.join(save_dir, f"{sn}-video-sample_cfg{guidance_scale:.1f}.mp4")
+                        if os.path.exists(video_name):
+                            continue
+                        
+                        print("rendering video: ", sn, _gaussian.shape)
+                    
+                        # render 360 video 
+                        # -------------------BEGIN -------------------
+                        images = []
+                        elevation = -10
 
+                        fancy_video = False
+                        from kiui.cam import orbit_camera
+                        import imageio
+                        import addict
+
+                        opt = addict.Dict()
+                        opt.cam_radius = 1.3
+                        opt.znear = 0.01
+                        opt.zfar = 10
+                        opt.fovy = 39.6
+                        
+                        device = unet.device
+                        
+                        cam_poses_canonical = torch.from_numpy(orbit_camera(elevation, 0, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
+                        
+                        tan_half_fov = np.tan(0.5 * np.deg2rad(opt.fovy))
+                        proj_matrix = torch.zeros(4, 4, dtype=torch.float32, device=device)
+                        proj_matrix[0, 0] = 1 / tan_half_fov
+                        proj_matrix[1, 1] = 1 / tan_half_fov
+                        proj_matrix[2, 2] = (opt.zfar + opt.znear) / (opt.zfar - opt.znear)
+                        proj_matrix[3, 2] = - (opt.zfar * opt.znear) / (opt.zfar - opt.znear)
+                        proj_matrix[2, 3] = 1
+                        
+                        if fancy_video:
+
+                            azimuth = np.arange(0, 720, 4, dtype=np.int32)
+                            for azi in tqdm(azimuth):
+                                
+                                cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
+
+                                if cfg.validation_dataset.normalize_campose:
+                                    transform = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, opt.cam_radius], [0, 0, 0, 1]], dtype=torch.float32) @ torch.inverse(cam_poses_canonical)
+                                    cam_poses = transform.unsqueeze(0) @ cam_poses  # [V, 4, 4]
+                                    print("normalized cam_poses when render video ")
+
+                                cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                                
+                                # cameras needed by gaussian rasterizer
+                                cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+                                cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
+                                cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+
+                                scale = min(azi / 360, 1)
+                                
+                                image = gs.render(_gaussian[None], cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=scale)['image']
+                                images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+                        else:
+                            azimuth = np.arange(0, 360, 2, dtype=np.int32)
+                            # azimuth = np.array([0, 90, 180, 270, 30, 330, 120, 150, 210, 240])
+                            for azi in tqdm(azimuth):
+                                
+                                cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
+
+                                cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                                
+                                # cameras needed by gaussian rasterizer
+                                cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
+                                cam_view_proj = cam_view @ proj_matrix # [V, 4, 4]
+                                cam_pos = - cam_poses[:, :3, 3] # [V, 3]
+
+                                image = gs.render(_gaussian[None], cam_view.unsqueeze(0), cam_view_proj.unsqueeze(0), cam_pos.unsqueeze(0), scale_modifier=1)['image']
+                                images.append((image.squeeze(1).permute(0,2,3,1).contiguous().float().cpu().numpy() * 255).astype(np.uint8))
+
+                        images = np.concatenate(images, axis=0)
+                        imageio.mimwrite(video_name, images, fps=30)
+                        print("video saved: ", video_name)
+                        # -------------------END -------------------
                       
                 
                 
@@ -777,56 +892,58 @@ def main(
     first_epoch = 0
 
 
-    # Potentially load in the weights and states from a previous save
-    if cfg.resume_from_checkpoint:
-        if cfg.resume_from_checkpoint != "latest":
-            # path = os.path.basename(cfg.resume_from_checkpoint)
-            path = cfg.resume_from_checkpoint
-        else:
-            # Get the most recent checkpoint
-            if os.path.exists(os.path.join(cfg.output_dir, "checkpoint")):
-                path = "checkpoint"
-            else:
-                dirs = os.listdir(cfg.output_dir)
-                dirs = [d for d in dirs if d.startswith("checkpoint")]
-                dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-                path = dirs[-1] if len(dirs) > 0 else None
+    ## no resum for inference
+    # # Potentially load in the weights and states from a previous save
+    # if cfg.resume_from_checkpoint:
+        
+    #     if cfg.resume_from_checkpoint != "latest":
+    #         # path = os.path.basename(cfg.resume_from_checkpoint)
+    #         path = cfg.resume_from_checkpoint
+    #     else:
+    #         # Get the most recent checkpoint
+    #         if os.path.exists(os.path.join(cfg.output_dir, "checkpoint")):
+    #             path = "checkpoint"
+    #         else:
+    #             dirs = os.listdir(cfg.output_dir)
+    #             dirs = [d for d in dirs if d.startswith("checkpoint")]
+    #             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+    #             path = dirs[-1] if len(dirs) > 0 else None
             
-            path = os.path.join(cfg.output_dir, path) if path is not None else None
+    #         path = os.path.join(cfg.output_dir, path) if path is not None else None
 
-        if path is None:
-            accelerator.print(
-                f"Checkpoint '{cfg.resume_from_checkpoint}' does not exist. Starting a new training run."
-            )
-            cfg.resume_from_checkpoint = None
-        else:
-            # # Step 1: Save a copy of the weights before loading the state
-            # unet_weights_before = {name: param.clone() for name, param in unet.named_parameters()}
+    #     if path is None:
+    #         accelerator.print(
+    #             f"Checkpoint '{cfg.resume_from_checkpoint}' does not exist. Starting a new training run."
+    #         )
+    #         cfg.resume_from_checkpoint = None
+    #     else:
+    #         # # Step 1: Save a copy of the weights before loading the state
+    #         # unet_weights_before = {name: param.clone() for name, param in unet.named_parameters()}
 
-            # Step 2: Load the state
-            accelerator.print(f"Resuming from checkpoint {path}")
-            # accelerator.load_state(os.path.join(cfg.output_dir, path))
-            accelerator.load_state(path)
+    #         # Step 2: Load the state
+    #         accelerator.print(f"Resuming from checkpoint {path}")
+    #         # accelerator.load_state(os.path.join(cfg.output_dir, path))
+    #         accelerator.load_state(path)
             
-            # # Step 3: Compare the weights after loading the state
-            # changed_weights = []
-            # for name, param in vae.named_parameters():
-            #     if not torch.equal(unet_weights_before[name], param):
-            #         changed_weights.append(name)
+    #         # # Step 3: Compare the weights after loading the state
+    #         # changed_weights = []
+    #         # for name, param in vae.named_parameters():
+    #         #     if not torch.equal(unet_weights_before[name], param):
+    #         #         changed_weights.append(name)
 
-            # # Step 4: Print the results
-            # if changed_weights:
-            #     print(f"The following weights have changed after loading the checkpoint: {changed_weights}")
-            # else:
-            #     print("No weights have changed after loading the checkpoint.")
-            # ##### finished check unet weights #####
-            # st()
+    #         # # Step 4: Print the results
+    #         # if changed_weights:
+    #         #     print(f"The following weights have changed after loading the checkpoint: {changed_weights}")
+    #         # else:
+    #         #     print("No weights have changed after loading the checkpoint.")
+    #         # ##### finished check unet weights #####
+    #         # st()
                 
-            global_step = cfg.last_global_step
+    #         global_step = cfg.last_global_step
 
-            # resume_global_step = global_step * cfg.gradient_accumulation_steps
-            # first_epoch = global_step // num_update_steps_per_epoch
-            # resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
+    #         # resume_global_step = global_step * cfg.gradient_accumulation_steps
+    #         # first_epoch = global_step // num_update_steps_per_epoch
+    #         # resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
    
     ## add a log validation right before training, without any gradient updates
