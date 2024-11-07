@@ -20,14 +20,17 @@ train_dataset:
   read_color: true
   overfit: false
   debug: false
-  lmdb_6view_base: /mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database
+  lmdb_6view_base: null
+  # lmdb_6view_base: /mnt/kostas-graid/datasets/xuyimeng/lara/lmdb_database_1views_whole_HASHED/lmdb_database
   rendering_loss_2dgs: false
-  read_first_view_only: true
+  read_first_view_only: false
   render_views: 10
   dataset_type: lara
   data_base_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/lara
   normalize_campose: false
   render_size: 256
+  # fixed_input_views: [25, 28, 31, 34, 26, 36]
+  fixed_input_views: [0, 6, 12, 18, 2, 22]
 validation_dataset:
   root_dir: ${train_dataset.root_dir}
   # root_dir: /mnt/kostas-graid/sw/envs/chenwang/data/gso/gso_recon_gsec512
@@ -51,6 +54,7 @@ validation_dataset:
   data_base_dir: ${train_dataset.data_base_dir}
   normalize_campose: ${train_dataset.normalize_campose}
   render_size: ${train_dataset.render_size}
+  fixed_input_views: ${train_dataset.fixed_input_views}
 validation_train_dataset:
   root_dir: ${train_dataset.root_dir}
   object_list: ./data_lists/single_obj.json
@@ -73,14 +77,15 @@ validation_train_dataset:
   data_base_dir: ${train_dataset.data_base_dir}
   normalize_campose: ${train_dataset.normalize_campose}
   render_size: ${train_dataset.render_size}
+  fixed_input_views: ${train_dataset.fixed_input_views}
   
 # output_dir: outputs/splatter/normalize_cam_false/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable
 # output_dir: outputs/splatter/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu8-all_trainable-2nd
-output_dir: outputs/splatter_normalize_cam_false/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ64-all_trainable-resume_normalizeTRUE
+output_dir: outputs/splatter_normalize_cam_false/debug/wonder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ64-all_trainable-resume_normalizeTRUE
 fovy: 39.6
 
 seed: 42
-train_batch_size: 16
+train_batch_size: 8
 validation_batch_size: 8
 validation_train_batch_size: 8
 max_train_steps: 20000
@@ -144,7 +149,7 @@ camera_embedding_lr_mult: 10.0
 num_views: 6
 camera_embedding_type: e_de_da_sincos
 drop_type: drop_as_a_whole
-last_global_step: 0
+last_global_step: 8540
 rendering_loss_2dgs: true
 zero_terminal_snr: true
 sync_domain_timesteps: true

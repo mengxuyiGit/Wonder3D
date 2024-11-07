@@ -604,6 +604,8 @@ def main(
     else:
         raise ValueError(f"Unknown dataset type: {cfg.train_dataset.dataset_type}")
 
+    time.sleep(accelerator.local_process_index * 5)
+
     # Get the training dataset
     train_dataset = MVDiffusionDataset(
         **cfg.train_dataset
@@ -742,23 +744,38 @@ def main(
             resume_step = resume_global_step % (num_update_steps_per_epoch * cfg.gradient_accumulation_steps)        
 
    
-    # ## add a log validation right before training, without any gradient updates
-    # if accelerator.is_main_process:
-    #     log_validation_inference(
-    #         validation_dataloader,
-    #         vae,
-    #         feature_extractor,
-    #         image_encoder,
-    #         unet,
-    #         cfg,
-    #         accelerator,
-    #         weight_dtype,
-    #         'init',
-    #         'validation',
-    #         vis_dir
-    #     )
-    #     print("log validation before training, saved to ", vis_dir)
-    #     # st()
+    ## add a log validation right before training, without any gradient updates
+    if accelerator.is_main_process:
+        # log_validation_inference(
+        # # log_validation(
+        #     validation_dataloader,
+        #     vae,
+        #     feature_extractor,
+        #     image_encoder,
+        #     unet,
+        #     cfg,
+        #     accelerator,
+        #     weight_dtype,
+        #     'init',
+        #     'validation',
+        #     vis_dir
+        # )
+
+        # log_validation_inference(
+        #     validation_train_dataloader,
+        #     vae,
+        #     feature_extractor,
+        #     image_encoder,
+        #     unet,
+        #     cfg,
+        #     accelerator,
+        #     weight_dtype,
+        #     'init',
+        #     'validation_train',
+        #     vis_dir
+        # )
+        print("log validation before training, saved to ", vis_dir)
+        # st()
         
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfg.max_train_steps), disable=not accelerator.is_local_main_process)
@@ -1000,6 +1017,8 @@ def main(
                         except:
                             unet.save_pretrained(os.path.join(cfg.output_dir, f"unet-{global_step}/unet"))
                         logger.info(f"Saved state to {save_path}")
+                    
+                    torch.cuda.empty_cache()
 
                 if global_step % cfg.validation_steps == 0: # or (cfg.validation_sanity_check and global_step == 1):
                     if accelerator.is_main_process:
@@ -1007,20 +1026,20 @@ def main(
                             # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                             ema_unet.store(unet.parameters())
                             ema_unet.copy_to(unet.parameters())
-                        # log_validation(
-                        #     validation_dataloader,
-                        #     vae,
-                        #     feature_extractor,
-                        #     image_encoder,
-                        #     unet,
-                        #     cfg,
-                        #     accelerator,
-                        #     weight_dtype,
-                        #     global_step,
-                        #     'validation',
-                        #     vis_dir
-                        # )
-                        # print("log validation, saved to ", vis_dir)
+                        log_validation(
+                            validation_dataloader,
+                            vae,
+                            feature_extractor,
+                            image_encoder,
+                            unet,
+                            cfg,
+                            accelerator,
+                            weight_dtype,
+                            global_step,
+                            'validation',
+                            vis_dir
+                        )
+                        print("log validation, saved to ", vis_dir)
                         
                         # inference_dir = os.path.join(vis_dir, f"inference_{global_step}")
                         # os.makedirs(inference_dir, exist_ok=True)
