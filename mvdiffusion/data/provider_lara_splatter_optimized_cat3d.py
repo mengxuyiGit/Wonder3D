@@ -412,7 +412,7 @@ class gobjverse(torch.utils.data.Dataset):
         read_color, read_normal, read_depth = False, True, False # here noraml == splatter
         
         # resize render ground-truth images, range still in [0, 1]
-        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [1, C, output_size, output_size]
         
         if read_color:
             results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
@@ -424,6 +424,9 @@ class gobjverse(torch.utils.data.Dataset):
             
         # results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
 
+        # also concat the input cond to the output
+        results[f"imgs_out"] = torch.cat([results['imgs_in'][0:1], results[f"imgs_out"]], dim=0)
+
         if self.read_first_view_only:
             assert len(tar_eles) == 1
             elevations = torch.tensor([tar_eles[0]] * 6)
@@ -432,8 +435,14 @@ class gobjverse(torch.utils.data.Dataset):
             elevations = torch.as_tensor(tar_eles).float()
             azimuths = torch.as_tensor(tar_azis).float()
             
-        elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # fixed only use 4 views to train
-        azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
+        # elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # fixed only use 4 views to train
+        # azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # fixed only use 4 views to train
+
+        elevations_cond = elevations[0:1]  # not including the rendering views
+        azimuths_cond = azimuths[0:1]  # not including the rendering views
+        elevations = torch.cat([elevations_cond, elevations], dim=0)
+        azimuths = torch.cat([azimuths_cond, azimuths], dim=0)
+        elevations_cond = elevations_cond.repeat(self.num_views + 1)
         
         # print("elevations_cond", elevations_cond)
         # print("elevations", elevations)
@@ -468,8 +477,10 @@ class gobjverse(torch.utils.data.Dataset):
         selected_attr_idx = gt_attr_keys.index(selected_attr)
         splatter_class = torch.tensor([0, 0, 0, 0, 0]).float()
         splatter_class[selected_attr_idx] = 1
-        task_embeddings = torch.stack([splatter_class]*self.num_views, dim=0)  # (Nv, 5)
-        print("task_embeddings", task_embeddings.shape)
+        task_embeddings = torch.stack([splatter_class]*(self.num_views), dim=0)  # (Nv, 5)
+        task_embeddings = torch.stack([torch.tensor([0, 0, 0, 0, 0]).float()] + [splatter_class]*(self.num_views), dim=0)  # (Nv, 5)
+        # task_embeddings = torch.stack([splatter_class]*(self.num_views+1), dim=0)  # (Nv, 5)
+        # print("task_embeddings", task_embeddings.shape, task_embeddings)
             
         results['task_embeddings'] = task_embeddings
 
@@ -509,7 +520,8 @@ class gobjverse(torch.utils.data.Dataset):
     
         images = torch.from_numpy(tar_img).permute(0,3,1,2) # [V, C, H, W]
         # # resize render ground-truth images, range still in [0, 1]
-        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+        # results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False).repeat(self.num_views, 1, 1, 1) # [1, C, output_size, output_size]
+        results['imgs_in'] =  F.interpolate(images[0:1], size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [1, C, output_size, output_size]
         
         ### no need to read the below infos
         rendering_loss_2dgs = self.rendering_loss_2dgs
@@ -604,20 +616,31 @@ class gobjverse(torch.utils.data.Dataset):
         assert len(splatter_original_Channel_mvimage_dict.keys()) == 5
         for key, value in splatter_original_Channel_mvimage_dict.items():
             results[f"{key}_out"] = einops.rearrange(value, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
-            # print(key, results[f"{key}_out"].shape)
-            # assert results[f"{key}_out"].shape[-2:] == self.img_wh
+            
+            # also concat the input cond to the output
+            results[f"{key}_out"] = torch.cat([results['imgs_in'][0:1], results[f"{key}_out"]], dim=0)
+            
         
         if self.read_first_view_only:
             # [  0.,  90., 180., 270.,  30., 330.])
             assert len(tar_eles) == 1
             elevations = torch.tensor([tar_eles[0]] * 6)
-            azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.])
+            azimuths = torch.tensor([ 0.,  90., 180., 270.,  30., 330.])
         else:
             elevations = torch.as_tensor(tar_eles[:self.num_views]).float()
             azimuths = torch.as_tensor(tar_azis[:self.num_views]).float() 
  
-        elevations_cond = torch.as_tensor([elevations[0]] * self.num_views).float()  # not including the rendering views
-        azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views).float()  # not including the rendering views
+        # elevations_cond = torch.as_tensor([elevations[0]] * self.num_views + 1).float()  # not including the rendering views
+        # azimuths_cond = torch.as_tensor([azimuths[0]] * self.num_views + 1).float()  # not including the rendering views
+        # elevations = torch.cat([elevations_cond[0:1], elevations], dim=0)
+        # azimuths = torch.cat([azimuths_cond[0:1], azimuths], dim=0)
+        
+        elevations_cond = elevations[0:1]  # not including the rendering views
+        azimuths_cond = azimuths[0:1]  # not including the rendering views
+        elevations = torch.cat([elevations_cond, elevations], dim=0)
+        azimuths = torch.cat([azimuths_cond, azimuths], dim=0)
+        elevations_cond = elevations_cond.repeat(self.num_views + 1)
+        
         
         # print("elevations_cond", elevations_cond)
         # print("elevations", elevations)
@@ -635,9 +658,9 @@ class gobjverse(torch.utils.data.Dataset):
             'elevations_deg': elevations,
             'azimuths_deg': azimuths,
         })
+        
 
         camera_embeddings = torch.stack([elevations_cond, elevations-elevations_cond, azimuths-azimuths_cond], dim=-1) # (Nv, 3)
-        # print("camera_embeddings", camera_embeddings)
         results['camera_embeddings'] = camera_embeddings
 
         # # task embedding
@@ -651,7 +674,7 @@ class gobjverse(torch.utils.data.Dataset):
         # splatter task embeddings
         splatter_class_all = torch.eye(5).float()
         for i, key in enumerate(gt_attr_keys):
-            results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*self.num_views, dim=0)
+            results[f"{key}_task_embeddings"] = torch.stack([splatter_class_all[i]]*(self.num_views + 1), dim=0)
 
 
         results['scene_name'] = scene_name #uid.split('/')[-1]

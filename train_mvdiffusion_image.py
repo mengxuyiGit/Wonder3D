@@ -40,11 +40,6 @@ from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
 from mvdiffusion.models.unet_mv2d_condition import UNetMV2DConditionModel
 
-# from mvdiffusion.data.dataset_nc import MVDiffusionDatasetV2 as MVDiffusionDataset
-# from mvdiffusion.data.objaverse_dataset import ObjaverseDataset as MVDiffusionDataset
-# from mvdiffusion.data.lvis_dataset import ObjaverseDataset as MVDiffusionDataset
-# from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
-# from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
 
 from mvdiffusion.pipelines.pipeline_mvdiffusion_image import MVDiffusionImagePipeline
 
@@ -156,7 +151,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
             task_embeddings = batch['task_embeddings']
             camera_embeddings = torch.cat([camera_embeddings, task_embeddings], dim=-1)
 
-
+        imgs_in = imgs_in.repeat(1, cfg.num_views+1, 1, 1, 1)
         # (B*Nv, 3, H, W)
         imgs_in, imgs_out = rearrange(imgs_in, "B Nv C H W -> (B Nv) C H W"), rearrange(imgs_out, "B Nv C H W -> (B Nv) C H W")
         # (B*Nv, Nce)
@@ -410,6 +405,8 @@ def main(
 
     if cfg.train_dataset.dataset_type == 'lvis':
         from mvdiffusion.data.lvis_splatter_dataset import ObjaverseDataset as MVDiffusionDataset
+    elif cfg.train_dataset.dataset_type == 'lara_cat3d':
+        from mvdiffusion.data.provider_lara_splatter_optimized_cat3d import gobjverse as MVDiffusionDataset
     else:
         from mvdiffusion.data.provider_lara_splatter_optimized import gobjverse as MVDiffusionDataset
     
@@ -547,8 +544,9 @@ def main(
                 elif cfg.pred_type == 'normal':
                     imgs_in, imgs_out = batch['imgs_in'], batch['normals_out']
 
-                bnm, Nv = imgs_in.shape[0], imgs_in.shape[1]
-                # print("imgs_in: ",imgs_in.shape)
+                bnm = imgs_in.shape[0]
+                Nv = cfg.num_views 
+                imgs_in = imgs_in.repeat(1, Nv+1, 1, 1, 1)    
 
                 # (B, Nv, Nce)
                 camera_embeddings = batch['camera_embeddings']
@@ -573,16 +571,16 @@ def main(
 
                 imgs_in, imgs_out, camera_embeddings = imgs_in.to(weight_dtype), imgs_out.to(weight_dtype), camera_embeddings.to(weight_dtype)
 
-                # (B*Nv, 4, Hl, Wl)
-                downsample_vae = True
-                if downsample_vae:
-                    imgs_in_vae = F.interpolate(imgs_in, size=imgs_out.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
-                    cond_vae_embeddings = vae.encode(imgs_in_vae * 2.0 - 1.0).latent_dist.mode()
-                else:
-                    cond_vae_embeddings = vae.encode(imgs_in * 2.0 - 1.0).latent_dist.mode()
+                # # (B*Nv, 4, Hl, Wl)
+                # downsample_vae = True
+                # if downsample_vae:
+                #     imgs_in_vae = F.interpolate(imgs_in, size=imgs_out.shape[-2:], mode='bilinear', align_corners=False, antialias=True)
+                #     cond_vae_embeddings = vae.encode(imgs_in_vae * 2.0 - 1.0).latent_dist.mode()
+                # else:
+                #     cond_vae_embeddings = vae.encode(imgs_in * 2.0 - 1.0).latent_dist.mode()
                     
-                if cfg.scale_input_latents:
-                    cond_vae_embeddings = cond_vae_embeddings * vae.config.scaling_factor
+                # if cfg.scale_input_latents:
+                #     cond_vae_embeddings = cond_vae_embeddings * vae.config.scaling_factor
                 latents = vae.encode(imgs_out * 2.0 - 1.0).latent_dist.sample() * vae.config.scaling_factor
 
                 # DO NOT use this! Very slow!                
@@ -600,8 +598,14 @@ def main(
                 bsz = latents.shape[0]
 
                 # same noise for different views of the same object
-                timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bsz // cfg.num_views,), device=latents.device).repeat_interleave(cfg.num_views)
-                timesteps = timesteps.long()                
+                timesteps = torch.randint(0, noise_scheduler.num_train_timesteps, (bnm,), device=latents.device).repeat_interleave(cfg.num_views)
+                timesteps = timesteps.long()      
+                # print(timesteps.shape)
+                
+                # makssure the cond has timesteps = 0
+                timesteps = rearrange(timesteps, "(B Nv) -> B Nv", B=bnm)
+                timesteps = torch.cat([torch.zeros_like(timesteps[:,0:1]), timesteps], dim=1)
+                timesteps = rearrange(timesteps, "B Nv -> (B Nv)")
 
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
@@ -613,22 +617,28 @@ def main(
                         random_p = torch.rand(bnm, device=latents.device, generator=generator)
                         
                         # Sample masks for the conditioning images.
-                        image_mask_dtype = cond_vae_embeddings.dtype
+                        image_mask_dtype = latents.dtype
                         image_mask = 1 - (
                             (random_p >= cfg.condition_drop_rate).to(image_mask_dtype)
                             * (random_p < 3 * cfg.condition_drop_rate).to(image_mask_dtype)
                         )
-                        image_mask = image_mask.reshape(bnm, 1, 1, 1, 1).repeat(1, Nv, 1, 1, 1)
+                        image_mask = image_mask.reshape(bnm, 1, 1, 1, 1)
+                        
+                        target_mask = torch.ones_like(image_mask).repeat(1, Nv, 1, 1, 1) # always 1 for splatter images
+                        image_mask = torch.cat([image_mask, target_mask], dim=1)
+                        
                         image_mask = rearrange(image_mask, "B Nv C H W -> (B Nv) C H W")
+                        # print("image_mask: ", image_mask.shape)
                         # Final image conditioning.
-                        cond_vae_embeddings = image_mask * cond_vae_embeddings
+                        # cond_vae_embeddings = image_mask * cond_vae_embeddings
+                        noisy_latents *= image_mask
 
                         # Sample masks for the conditioning images.
                         clip_mask_dtype = image_embeddings.dtype
                         clip_mask = 1 - (
                             (random_p < 2 * cfg.condition_drop_rate).to(clip_mask_dtype)
                         )
-                        clip_mask = clip_mask.reshape(bnm, 1, 1, 1).repeat(1, Nv, 1, 1)
+                        clip_mask = clip_mask.reshape(bnm, 1, 1, 1).repeat(1, Nv+1, 1, 1)
                         clip_mask = rearrange(clip_mask, "B Nv M C -> (B Nv) M C")
                         # Final image conditioning.
                         image_embeddings = clip_mask * image_embeddings
@@ -655,8 +665,9 @@ def main(
                         image_embeddings = clip_mask * image_embeddings
                     
                 # (B*Nv, 8, Hl, Wl)
-                latent_model_input = torch.cat([noisy_latents, cond_vae_embeddings], dim=1)
-                # print(latent_model_input.shape)
+                # latent_model_input = torch.cat([noisy_latents, cond_vae_embeddings], dim=1)
+                latent_model_input = noisy_latents  
+                # print(latent_model_input.shape, timesteps.shape, image_embeddings.shape, camera_embeddings.shape)
                 
 
                 model_pred = unet(

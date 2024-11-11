@@ -135,7 +135,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         self.register_to_config(requires_safety_checker=requires_safety_checker)
 
         self.camera_embedding_type: str = camera_embedding_type
-        self.num_views: int = num_views
+        self.num_views: int = num_views + 1 # for cat3d
         self.num_tasks: int = num_tasks
 
     
@@ -503,6 +503,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             batch_size = len(image)
         elif isinstance(image, torch.Tensor):
             batch_size = image.shape[0]
+            print("batch_size:", batch_size, "images:", image.shape, "num_views:", self.num_views)
             assert batch_size >= self.num_views and batch_size % self.num_views == 0
         elif isinstance(image, PIL.Image.Image):
             image = [image]*self.num_views*2
@@ -539,7 +540,6 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
         else:
             camera_embedding = self.camera_embedding.to(dtype)
             camera_embedding = repeat(camera_embedding, "Nv Nce -> (B Nv) Nce", B=batch_size//len(camera_embedding))
-            from ipdb import set_trace as st; st()
         camera_embeddings = self.prepare_camera_embedding(camera_embedding, do_classifier_free_guidance=do_classifier_free_guidance, num_images_per_prompt=num_images_per_prompt)
         print("camera_embedding (MVPipe __call__):", camera_embeddings.shape)
 
@@ -549,6 +549,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
 
         # 5. Prepare latent variables
         num_channels_latents = self.unet.config.out_channels
+        print("num_channels_latents:", num_channels_latents)
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             num_channels_latents,
@@ -560,6 +561,8 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
             latents,
         )
         
+        # print("latents:", latents.shape)
+        
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
@@ -570,15 +573,27 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
                 image_embeddings = self.reshape_to_cd_input(image_embeddings)
                 camera_embeddings = self.reshape_to_cd_input(camera_embeddings)
                 image_latents = self.reshape_to_cd_input(image_latents)
+                
+            image_latents = rearrange(image_latents, "(B Nv) C H W -> B Nv C H W", Nv=self.num_views)
+
+            # print("image_embeddings:", image_embeddings.shape)
+            # print("camera_embeddings:", camera_embeddings.shape)
+            # print("image_latents:", image_latents.shape)
+            
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                 if do_classifier_free_guidance:
                     latent_model_input = self.reshape_to_cd_input(latent_model_input)
-                latent_model_input = torch.cat([
-                    latent_model_input, image_latents
-                ], dim=1)
+                # latent_model_input = torch.cat([
+                #     latent_model_input, image_latents
+                # ], dim=1)
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                # st() # replace the first view with clean input cond
+                latent_model_input = rearrange(latent_model_input, "(B Nv) C H W -> B Nv C H W", Nv=self.num_views)
+                latent_model_input[:,0] = image_latents[:,0]
+                latent_model_input = rearrange(latent_model_input, "B Nv C H W -> (B Nv) C H W")
 
                 # predict the noise residual
                 noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=image_embeddings, class_labels=camera_embeddings).sample

@@ -186,12 +186,13 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         gs_renderings = defaultdict(list)
         
     num_domains = 5
+    Nv = cfg.num_views
     
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
     images_gt_rendering = []
 
     for i, batch in enumerate(dataloader):
-        imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
+        imgs_in = torch.cat([batch['imgs_in'].repeat(1, Nv + 1, 1, 1, 1)]*num_domains, dim=0)
         imgs_out_rendering = batch['imgs_out']
         
         # print("begin inference")
@@ -292,7 +293,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     if rendering_loss_2dgs:
                         data = batch
 
-                        splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
+                        splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=Nv+1)
                         
                         # for i, sn in enumerate(batch['scene_name']):
                             # save_image(out[i], os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
@@ -300,6 +301,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                             sn = f"{global_step}-{sn}" if global_step is not None else sn
                             save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                     
+                        splatters_bdv = splatters_bdv[:,:,1:] # exclude the first view
                         if not batchify:
                             # splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
                             gaussians = reconstruct_gaussians(splatter_data_no_batch)
