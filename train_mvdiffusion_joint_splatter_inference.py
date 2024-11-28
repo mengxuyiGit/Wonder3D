@@ -190,7 +190,12 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
     images_cond, images_gt, images_pred = [], [], defaultdict(list)
     images_gt_rendering = []
 
+    inference_time_all = []
     for i, batch in enumerate(dataloader):
+
+        # if i > 1:
+        #     break 
+        
         imgs_in = torch.cat([batch['imgs_in']]*num_domains, dim=0)
         imgs_out_rendering = batch['imgs_out']
         
@@ -256,13 +261,17 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     # latent_dir = "/home/xuyimeng/Repo/Wonder3D/outputs/inference/GSO_metric/nder3D-joint-128-lara_splatter-rope-ZERO_SNR-BSZ16_acc1_gpu4-all_trainable/baseline/fov39.6-cam1.3-ele10-12views/save_latents_3rd/inference"
                     latent_dir = save_dir
                 
+                    begin_time = time.time()
+                    
                     out = pipeline(
                         imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, **cfg.pipe_validation_kwargs
                         # imgs_in, camera_task_embeddings, generator=generator, guidance_scale=guidance_scale, output_type='pt', num_images_per_prompt=1, obj_name=os.path.join(latent_dir, f"{sn}-cfg{guidance_scale:.1f}"), **cfg.pipe_validation_kwargs
                     ).images
                     shape = out.shape
                     
-                    # print("Pipe inference time: ", time.time() - begin_time)
+                    inference_time = time.time() - begin_time
+                    print("Pipe inference time: ", inference_time)
+                    inference_time_all.append(inference_time)
                     # begin_time = time.time()
                     
                     # ###### old ######
@@ -294,11 +303,9 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
 
                         splatters_bdv = rearrange(out, "(B V D) C H W -> B D V C H W", D=num_domains, V=cfg.num_views)
                         
-                        # for i, sn in enumerate(batch['scene_name']):
-                            # save_image(out[i], os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
-                        for sn, scene_splatter in zip(data['scene_name'], splatters_bdv):
-                            sn = f"{global_step}-{sn}" if global_step is not None else sn
-                            save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
+                        # for sn, scene_splatter in zip(data['scene_name'], splatters_bdv):
+                        #     sn = f"{global_step}-{sn}" if global_step is not None else sn
+                        #     save_image(rearrange(scene_splatter, 'D V C H W ->  C (D H) (V W)'), os.path.join(save_dir, f"{sn}-{name}-sample_cfg{guidance_scale:.1f}.jpg"))
                     
                         if not batchify:
                             # splatter_data_no_batch = {k: rearrange(splatters_bdv[0,i], "(m n) c h w -> c (m h) (n w)", m=3, n=2) for i, k in enumerate(gt_attr_keys)}
@@ -313,7 +320,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         # assert  gaussians.shape == data["gaussians_gt"].shape
                         print("gaussians recon from BVD out v5: ", gaussians.shape)
                         
-                        save_ply = False
+                        save_ply = True
                         if save_ply:
                             for sn, single_gaussian in zip(data['scene_name'], gaussians):
                                 sn = f"{global_step}-{sn}" if global_step is not None else sn
@@ -354,7 +361,7 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                     
                     
                         for k, v in gs_results.items():
-                            if 'dist' in k or 'depth' in k or 'alpha' in k:
+                            if 'dist' in k or 'depth' in k or 'alpha' in k or 'normal' in k:
                                 continue
                             
                             # save each scene rendering separately
@@ -453,11 +460,26 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         else:
                             azimuth = np.arange(0, 360, 2, dtype=np.int32)
                             # azimuth = np.array([0, 90, 180, 270, 30, 330, 120, 150, 210, 240])
+                            if cfg.validation_dataset.normalize_campose:
+                                cam_poses_0 = torch.from_numpy(orbit_camera(elevation, azimuth[0], radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device).to(torch.float32)
+                                base_transform = torch.tensor([[1, 0, 0, 0], 
+                                                            [0, 1, 0, 0], 
+                                                            [0, 0, 1, opt.cam_radius], 
+                                                            [0, 0, 0, 1]], dtype=torch.float32).to(device) @ torch.inverse(cam_poses_0)
+                                # Normalize only the first pose
+                                first_pose_transform = base_transform # @ torch.inverse()
+                                print('normalize cam pose in video')  
+
+                            
                             for azi in tqdm(azimuth):
                                 
-                                cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device)
-
+                                cam_poses = torch.from_numpy(orbit_camera(elevation, azi, radius=opt.cam_radius, opengl=True)).unsqueeze(0).to(device).to(torch.float32)
+                                
+                                if cfg.validation_dataset.normalize_campose:
+                                    cam_poses = first_pose_transform @ cam_poses  # Apply only to align the first pose
+ 
                                 cam_poses[:, :3, 1:3] *= -1 # invert up & forward direction
+                                cam_poses = cam_poses.to(torch.float32)  # Ensure float32 for inversion
                                 
                                 # cameras needed by gaussian rasterizer
                                 cam_view = torch.inverse(cam_poses).transpose(1, 2) # [V, 4, 4]
@@ -473,6 +495,9 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
                         # -------------------END -------------------
                       
                 
+    
+    inference_time_avg = sum(inference_time_all) / len(inference_time_all)
+    print(f"Average inference time of {cfg.pipe_validation_kwargs.num_inference_steps}", inference_time_avg)
                 
     # images_cond_all = torch.cat(images_cond, dim=0)
     # if len(images_gt) > 0:

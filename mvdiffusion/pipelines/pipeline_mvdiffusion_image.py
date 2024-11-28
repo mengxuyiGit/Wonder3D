@@ -545,6 +545,7 @@ class MVDiffusionImagePipeline(DiffusionPipeline):
 
         # 4. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
+        # print("num_inference_steps = ", num_inference_steps)
         timesteps = self.scheduler.timesteps
 
         # 5. Prepare latent variables

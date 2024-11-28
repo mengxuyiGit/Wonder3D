@@ -525,6 +525,7 @@ class gobjverse(torch.utils.data.Dataset):
             # Specify the path to the .pkl file
             file_path = f'{path_gso}/meta.pkl'
             if os.path.exists(file_path):
+            # if False:
                 with open(file_path, 'rb') as f:
                     data = pickle.load(f)
                 K, azimuths, elevations, distances, cam_poses = data
@@ -537,12 +538,15 @@ class gobjverse(torch.utils.data.Dataset):
                 print("tar_c2ws GSO", '\n', tar_c2ws.shape)
             
                 # # load all images under path_gso
-                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in sorted(glob.glob(f"{path_gso}/*.png"))])
+                # images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in sorted(glob.glob(f"{path_gso}/*.png"))])
+                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [f"{path_gso}/{_j :03d}.png" for _j in range(10)]])
             else:
                 # only have condition images
+                tar_azis = [0, 90, 180, 270, 30, 330] #  + [240, 135, 210, 120, 180, 285, 15, 45, 315, 120, 345, 0, 30, 330]
                 tar_eles = np.array([0]*6) if self.gso_elevation is None else np.array([self.gso_elevation]*6)
-                tar_c2ws = np.stack([orbit_camera(-elevation, azimuth, radius=self.cam_radius) for elevation, azimuth in zip(tar_eles, [0, 90, 180, 270, 30, 330])])
-                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [path_gso]])
+                tar_c2ws = np.stack([orbit_camera(-elevation, azimuth, radius=self.cam_radius) for elevation, azimuth in zip(tar_eles, tar_azis)])
+                # images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [path_gso]])
+                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [f"{path_gso}/{_j :03d}.png" for _j in range(6)]])
                 # if images.shape[-1] > 512:
                     # reshape images
                 
