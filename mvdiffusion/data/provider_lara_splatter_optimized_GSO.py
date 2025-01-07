@@ -25,6 +25,21 @@ from utils.camera_utils import fov_to_ixt, get_proj_matrix
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
+import rembg
+import PIL
+
+def remove_background(image: PIL.Image.Image,
+    rembg_session: Any = None,
+    force: bool = False,
+    **rembg_kwargs,
+) -> PIL.Image.Image:
+    do_remove = True
+    if image.mode == "RGBA" and image.getextrema()[3][0] < 255:
+        do_remove = False
+    do_remove = do_remove or force
+    if do_remove:
+        image = rembg.remove(image, session=rembg_session, **rembg_kwargs)
+    return image
 
 import hashlib
 def hash_key_to_chunk(key, num_chunks):
@@ -545,8 +560,15 @@ class gobjverse(torch.utils.data.Dataset):
                 tar_azis = [0, 90, 180, 270, 30, 330] #  + [240, 135, 210, 120, 180, 285, 15, 45, 315, 120, 345, 0, 30, 330]
                 tar_eles = np.array([0]*6) if self.gso_elevation is None else np.array([self.gso_elevation]*6)
                 tar_c2ws = np.stack([orbit_camera(-elevation, azimuth, radius=self.cam_radius) for elevation, azimuth in zip(tar_eles, tar_azis)])
-                # images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [path_gso]])
-                images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [f"{path_gso}/{_j :03d}.png" for _j in range(6)]])
+                
+                
+                remove_bg = True
+                if remove_bg:
+                    rembg_session = rembg.new_session()
+                    images = np.stack([np.array(remove_background(PIL.Image.open(image_path), rembg_session)) / 255 for image_path in [path_gso]])
+                else:
+                    images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [path_gso]])
+                    # images = np.stack([cv2.imread(image_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 255 for image_path in [f"{path_gso}/{_j :03d}.png" for _j in range(6)]])
                 # if images.shape[-1] > 512:
                     # reshape images
                 
@@ -558,7 +580,9 @@ class gobjverse(torch.utils.data.Dataset):
                 mask = image[3:4] # [1, 512, 512]
                 image = image[:3] * mask + (1 - mask) * 1.0 # [3, 512, 512], to white bg
             
-            image = image[[2,1,0]].contiguous() # bgr to rgb
+            if not remove_bg:
+                image = image[[2,1,0]].contiguous() # bgr to rgb
+                
             images = image.permute(1,0,2,3)
             print("images shape before imgs_in: ", images.shape) # 4, 3, 512, 512
             
