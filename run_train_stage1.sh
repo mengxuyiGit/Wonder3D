@@ -6,8 +6,13 @@ export CUDA_LAUNCH_BLOCKING=1
 # accelerate launch --config_file 8gpu.yaml train_mvdiffusion_image.py --config configs/train/stage1-mix-6views-lvis.yaml
 # accelerate launch --config_file 4gpu.yaml train_mvdiffusion_image.py --config configs/train/stage1-mix-6views-lvis-3dgs.yaml
 
-# [Oct 10] train with camNorm=False
-accelerate launch --config_file 8gpu.yaml train_mvdiffusion_image.py --config configs/train/stage1-mix-6views-lara_camNormFalse.yaml
+# # [Oct 10] train with camNorm=False
+# accelerate launch --config_file 8gpu.yaml train_mvdiffusion_image.py --config configs/train/stage1-mix-6views-lara_camNormFalse.yaml
+
+# [Jul 17] tmlr ablation: 6 views x128x128
+# export CUDA_VISIBLE_DEVICES=1
+accelerate launch --config_file 4gpu.yaml train_mvdiffusion_image.py --config configs/train/stage1-mix-6views-lara_camNormFalse-tmlr_6x128x128.yaml
+
 
 ### debug
 # accelerate launch --config_file 1gpu.yaml train_mvdiffusion_image.py --config configs/train/stage1-mix-6views-lvis-pretrained_unet.yaml

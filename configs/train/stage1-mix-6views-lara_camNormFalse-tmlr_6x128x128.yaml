@@ -21,7 +21,7 @@ train_dataset:
   read_first_view_only: true
   render_views: 10
   dataset_type: lara
-  data_base_dir: ["/mnt/lingjie_cache/lara/GobjLara_Oct21/",]
+  data_base_dir: ["/mnt/lingjie_cache/GobjLara/splatter_data_multi_gpu-6x128x128",]
   normalize_campose: false
   render_size: 256
   fixed_input_views: [25, 28, 31, 34, 26, 36]
@@ -72,14 +72,14 @@ validation_train_dataset:
   render_size: ${train_dataset.render_size}
   fixed_input_views: ${train_dataset.fixed_input_views}
   
-output_dir: outputs/splatter_normalize_cam_false/stage1/wonder3D-mix-128-LARA-splatter-bsz64
+output_dir: outputs/tmlr/lara_6x128x128/stage1
 rendering_loss_2dgs: true
 zero_terminal_snr: true
 
 seed: 42
-train_batch_size: 8
+train_batch_size: 32
 validation_batch_size: 4 # ${train_batch_size}
-validation_train_batch_size: 16
+validation_train_batch_size: 32
 max_train_steps: 30000
 gradient_accumulation_steps: 1
 gradient_checkpointing: false
@@ -91,7 +91,7 @@ snr_gamma: 5.0
 use_8bit_adam: false
 allow_tf32: true
 use_ema: true
-dataloader_num_workers: 4
+dataloader_num_workers: 16
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_weight_decay: 0.01
@@ -103,7 +103,7 @@ vis_dir: vis
 mixed_precision: fp16
 report_to: tensorboard
 local_rank: 0
-checkpointing_steps: 2000
+checkpointing_steps: 4000
 checkpoints_total_limit: 20
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
