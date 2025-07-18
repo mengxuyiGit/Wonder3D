@@ -221,11 +221,8 @@ class gobjverse(torch.utils.data.Dataset):
             self.render_views = render_views
             print("render_views", self.render_views)
 
+
         self.read_first_view_only = read_first_view_only
-        # if read_first_view_only:
-        #     self.fixed_input_views = [0] # same elevation
-        # else:
-        #     self.fixed_input_views = np.arange(0, 24)[::6].tolist() + [2,22] # same elevation
         if read_first_view_only:
             self.fixed_input_views = fixed_input_views[0:1] # same elevation
         else:
@@ -410,7 +407,7 @@ class gobjverse(torch.utils.data.Dataset):
        
 
         normal_final = splatter_original_Channel_mvimage_dict[selected_attr]
-        normal_final = einops.rearrange(normal_final, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
+        normal_final = einops.rearrange(normal_final, 'c (m h) (n w) -> (m n) c h w', m=self.num_views//2, n=2)
         # print("selected_attr", selected_attr)
         # print("splatter_final:", normal_final.min(), normal_final.max(), normal_final.shape)
         
@@ -433,8 +430,8 @@ class gobjverse(torch.utils.data.Dataset):
 
         if self.read_first_view_only:
             assert len(tar_eles) == 1
-            elevations = torch.tensor([tar_eles[0]] * 6)
-            azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.])
+            elevations = torch.tensor([tar_eles[0]] * self.num_views)
+            azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.][:self.num_views])
         else:
             elevations = torch.as_tensor(tar_eles).float()
             azimuths = torch.as_tensor(tar_azis).float()
@@ -609,7 +606,7 @@ class gobjverse(torch.utils.data.Dataset):
         
         assert len(splatter_original_Channel_mvimage_dict.keys()) == 5
         for key, value in splatter_original_Channel_mvimage_dict.items():
-            results[f"{key}_out"] = einops.rearrange(value, 'c (m h) (n w) -> (m n) c h w', m=3, n=2)
+            results[f"{key}_out"] = einops.rearrange(value, 'c (m h) (n w) -> (m n) c h w', m=self.num_views//2, n=2)
             # print(key, results[f"{key}_out"].shape)
             # assert results[f"{key}_out"].shape[-2:] == self.img_wh
         
@@ -667,16 +664,11 @@ class gobjverse(torch.utils.data.Dataset):
     
     
     def __getitem__(self, index):
-        try:    
-            if self.mix_color_normal:
-                data = self.__getitem_mix__(index)
-            else:
-                data = self.__getitem_joint__(index)
-            return data
-        except:
-            # print("load error ", self.all_objects[index%len(self.all_objects)] )
-            # return self.backup_data
-            return self.__getitem_joint__(0)
+        if self.mix_color_normal:
+            data = self.__getitem_mix__(index)
+        else:
+            data = self.__getitem_joint__(index)
+        return data
 
     
     def read_views(self, scene, src_views, scene_name, lmdb_chunk=None):
