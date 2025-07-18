@@ -178,12 +178,12 @@ def log_validation(dataloader, vae, feature_extractor, image_encoder, unet, cfg:
         images_pred_all[k] = torch.cat(v, dim=0)
     
     nrow = cfg.validation_grid_nrow
-    ncol = images_cond_all.shape[0] // nrow
-    images_cond_grid = make_grid(images_cond_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
-    images_gt_grid = make_grid(images_gt_all, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+    # ncol = images_cond_all.shape[0] // nrow
+    images_cond_grid = make_grid(images_cond_all, nrow=nrow, padding=0, value_range=(0, 1))
+    images_gt_grid = make_grid(images_gt_all, nrow=nrow, padding=0, value_range=(0, 1))
     images_pred_grid = {}
     for k, v in images_pred_all.items():
-        images_pred_grid[k] = make_grid(v, nrow=nrow, ncol=ncol, padding=0, value_range=(0, 1))
+        images_pred_grid[k] = make_grid(v, nrow=nrow, padding=0, value_range=(0, 1))
     save_image(images_cond_grid, os.path.join(save_dir, f"{global_step}-{name}-cond.jpg"))
     save_image(images_gt_grid, os.path.join(save_dir, f"{global_step}-{name}-gt.jpg"))
     for k, v in images_pred_grid.items():
@@ -549,6 +549,7 @@ def main(
 
                 bnm, Nv = imgs_in.shape[0], imgs_in.shape[1]
                 # print("imgs_in: ",imgs_in.shape)
+                # print("imgs_out: ",imgs_out.shape)
 
                 # (B, Nv, Nce)
                 camera_embeddings = batch['camera_embeddings']
