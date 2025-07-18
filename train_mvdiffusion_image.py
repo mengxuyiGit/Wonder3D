@@ -725,7 +725,7 @@ def main(
                 accelerator.log({"train_loss": train_loss}, step=global_step)
                 train_loss = 0.0
 
-                if global_step % cfg.checkpointing_steps == 0:
+                if global_step % cfg.checkpointing_steps == 0 or global_step == 1:
                     if accelerator.is_main_process:
                         save_path = os.path.join(cfg.output_dir, f"checkpoint")
                         accelerator.save_state(save_path)
