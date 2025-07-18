@@ -120,16 +120,26 @@ class gobjverse(torch.utils.data.Dataset):
         self.training =  self.training = not validation
         self.split = 'train' if self.training else 'test'
         self.render_size = np.array([render_size]*2)
-
+        
+        # read data from h5py
         self.metas = h5py.File(self.data_root, 'r')
-        print("Loading data from", self.data_root)
-        print("Number of scenes", len(self.metas.keys()))
-        scenes_name = np.array(sorted(self.metas.keys())) # [:1000]
-        
-        
-        # debug = False
+        print("Loading data from: ", self.data_root)
+
+        read_common_data = True
+        if read_common_data:
+            common_obj_id_file = "/home/xuyimeng/Repo/zero-1-to-G/tmlr_common_obj_ids.npy"
+            scenes_name = np.load(common_obj_id_file)
+            print("Number of scenes in common obj ids", len(scenes_name))
+        else:
+            scenes_name = np.array(sorted(self.metas.keys())) # [:1000]
+            print("Number of scenes in h5py", len(self.metas.keys()))
+
         if debug:
             scenes_name = scenes_name[:200]
+            print(">>>>>>>>>> DEBUG MODE <<<<<<<<<<")
+        
+        print("Final number of scenes", len(scenes_name))
+        print("scenes_name", scenes_name[:2])
         
         if 'splits' in scenes_name:
             self.scenes_name = self.metas['splits']['test'][:].astype(str) #self.metas['splits'][self.split]
@@ -153,11 +163,7 @@ class gobjverse(torch.utils.data.Dataset):
             print("Number of scenes [after split]", len(self.scenes_name))
             
         # splatter mv data
-        # self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/lara/splatter_data/*/*/splatters_mv_inference"
-        # self.splatter_root = "/home/xuyimeng/Repo/zero-1-to-G/runs/lara/workspace_debug/20240928-072650-load_GObj-finetuned_epoch1-fovy=39.6-loss_render1.0_splatter1.0_lpips1.0-lr0.001-Plat/splatters_mv_inference"
-        # self.splatter_root = "/mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/lara/splatter_data_multi_gpu/*/*/splatters_mv_inference"
-        
-        self.splatter_root = [os.path.join(one_dir, f"splatter_data_multi_gpu/*/*/splatters_mv_inference") for one_dir in data_base_dir]
+        self.splatter_root = [os.path.join(one_dir, f"*/*/splatters_mv_inference") for one_dir in data_base_dir]
         print("Splatter root", self.splatter_root)
         
         ##################### LMDB CREATION ##################################################
@@ -169,10 +175,10 @@ class gobjverse(torch.utils.data.Dataset):
         
         from pathlib import Path
         lmdb_dir = Path(root_dir).parents[2]
-        self.lmdb_path = f'{lmdb_dir}/data_path_splatter_{self.split}_{coverage}_fuse4dirs.lmdb' # with corrupted data. with poor quality
+        self.lmdb_path = f'{lmdb_dir}/{os.path.basename(data_base_dir[0])}_{self.split}.lmdb' # with corrupted data. with poor quality
         print("LMDB path", self.lmdb_path)
-        
-        create_lmdb = False
+
+        create_lmdb = True # NOTE: always regenerate lmdb
         self.lmdbFiles = None
 
         if True: # create lmdb
@@ -193,7 +199,6 @@ class gobjverse(torch.utils.data.Dataset):
                         desired_num_keys = 100000 if self.split == 'train' else len(self.scenes_name)
                         create_lmdb = (num_keys < desired_num_keys)
                         print(f"Number of keys in LMDB {self.split} split is less than {desired_num_keys}. Creation is needed.") if create_lmdb else print(f"Number of keys in {self.split} split is enough: {num_keys}")
-                        
                 env.close()
         
             if create_lmdb:
@@ -225,6 +230,7 @@ class gobjverse(torch.utils.data.Dataset):
             self.fixed_input_views = fixed_input_views[0:1] # same elevation
         else:
             self.fixed_input_views = fixed_input_views
+        print("fixed_input_views", self.fixed_input_views)
     
     def worker_init_open_db(self):
         np.random.seed(torch.initial_seed() % 2**32)
@@ -327,9 +333,8 @@ class gobjverse(torch.utils.data.Dataset):
                         txn.put(scene_name.encode('utf-8'), pickle.dumps(scene_path))  # LMDB
                         final_scenes_name.append(scene_name)
 
-        print("Number of scenes [final] [create lmdb]", len(final_scenes_name))
+        print(f"Number of scenes [final] [create lmdb] [{self.split}]", len(final_scenes_name))
         env.close()
-        st()
 
     def open_lmdb_database(self):
         print(f"Opening existing LMDB database: {self.lmdb_path}  ...")
@@ -416,6 +421,8 @@ class gobjverse(torch.utils.data.Dataset):
         
         if read_color:
             results['imgs_out'] = F.interpolate(images, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
+            assert NotImplementedError
+        
         if read_normal:
             if normal_final.shape[-2:] == self.img_wh:
                 results['imgs_out'] = normal_final
