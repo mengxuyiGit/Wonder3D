@@ -424,6 +424,7 @@ class gobjverse(torch.utils.data.Dataset):
             if normal_final.shape[-2:] == self.img_wh:
                 results['imgs_out'] = normal_final
             else:
+                raise NotImplementedError
                 results['imgs_out'] = F.interpolate(normal_final, size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, C, output_size, output_size]
             
         # results['masks'] = F.interpolate(masks.unsqueeze(1), size=(self.img_wh[0], self.img_wh[1]), mode='bilinear', align_corners=False) # [V, 1, output_size, output_size]
