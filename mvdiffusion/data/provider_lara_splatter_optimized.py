@@ -615,8 +615,8 @@ class gobjverse(torch.utils.data.Dataset):
         if self.read_first_view_only:
             # [  0.,  90., 180., 270.,  30., 330.])
             assert len(tar_eles) == 1
-            elevations = torch.tensor([tar_eles[0]] * 6)
-            azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.])
+            elevations = torch.tensor([tar_eles[0]] * self.num_views)
+            azimuths = torch.tensor([0.,  90., 180., 270.,  30., 330.][:self.num_views])
         else:
             elevations = torch.as_tensor(tar_eles[:self.num_views]).float()
             azimuths = torch.as_tensor(tar_azis[:self.num_views]).float() 
