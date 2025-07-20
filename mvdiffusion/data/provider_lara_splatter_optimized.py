@@ -127,7 +127,8 @@ class gobjverse(torch.utils.data.Dataset):
 
         read_common_data = True
         if read_common_data:
-            common_obj_id_file = "/home/xuyimeng/Repo/zero-1-to-G/tmlr_common_obj_ids.npy"
+            # common_obj_id_file = "/home/xuyimeng/Repo/zero-1-to-G/tmlr_common_obj_ids.npy"
+            common_obj_id_file = "/home/xuyimeng/Repo/zero-1-to-G/tmlr_common_obj_ids-stage2.npy"
             scenes_name = np.load(common_obj_id_file)
             print("Number of scenes in common obj ids", len(scenes_name))
         else:
