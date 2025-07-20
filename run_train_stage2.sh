@@ -12,6 +12,6 @@
 
 # [July 20] tmlr ablation:
 # export CUDA_VISIBLE_DEVICES=1
-accelerate launch --config_file 4gpu.yaml train_mvdiffusion_joint_splatter.py --config configs/train/stage2-joint-6views-lara_camNormFalse-tmlr_6x128x128.yaml
-# accelerate launch --config_file 4gpu.yaml train_mvdiffusion_joint_splatter.py --config configs/train/stage2-joint-6views-lara_camNormFalse-tmlr_4x128x128.yaml
+# accelerate launch --config_file 4gpu.yaml train_mvdiffusion_joint_splatter.py --config configs/train/stage2-joint-6views-lara_camNormFalse-tmlr_6x128x128.yaml
+accelerate launch --config_file 4gpu.yaml train_mvdiffusion_joint_splatter.py --config configs/train/stage2-joint-6views-lara_camNormFalse-tmlr_4x128x128.yaml
 # accelerate launch --config_file 4gpu.yaml train_mvdiffusion_joint_splatter.py --config configs/train/stage2-joint-6views-lara_camNormFalse-tmlr_4x256x256.yaml
