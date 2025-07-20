@@ -1,9 +1,10 @@
 pretrained_model_name_or_path: lambdalabs/sd-image-variations-diffusers
-pretrained_unet_path: outputs/splatter_normalize_cam_false/stage3-trainable_all/wonder3D-joint-128-lara-splatter-ROPE-bsz64/run-2/unet-16000
+pretrained_unet_path: /home/xuyimeng/Repo/Wonder3D/outputs/tmlr/lara_6x128x128/stage1/unet-20000
 pretrained_decoder_path: /mnt/kostas_home/lilym/LGM/LGM/runs/finetune_decoder/workspace_train_sep/00012-independent_encode_mv_True-no_resume-GTnormal_loss_after6000-BSZ16-numV15-loss_render1.0_splatter1.0_lpips2.0-lr5e-06-Plat5/eval_global_step_29000_ckpt/model.safetensors
 revision: null
 train_dataset:
-  root_dir: /mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct21/dataset/gobjaverse/gobjaverse.h5
+  # root_dir: /scratch/lara/GobjLara_Oct21/dataset/gobjaverse/gobjaverse.h5
+  root_dir: /mnt/lingjie_cache/GobjLara/dataset/gobjaverse/gobjaverse.h5
   object_list: ./data_lists/single_obj.json
   invalid_list: ./data_lists/lvis_invalid_uids_nineviews.json
   num_views: 6
@@ -23,11 +24,8 @@ train_dataset:
   read_first_view_only: true
   render_views: 10
   dataset_type: lara
-  data_base_dir: [
-                  "/mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct3/dataset/lara", 
-                  "/mnt/kostas-graid/datasets/xuyimeng/GobjLara_Oct21/",
-                  "/mnt/lingjie_cache/lara/GobjLara_Oct21/",
-            ]
+  data_base_dir: ["/mnt/lingjie_cache/GobjLara/splatter_data_multi_gpu-6x128x128",]
+  # data_base_dir: ["/scratch/GobjLara/splatter_data_multi_gpu-6x128x128",]
   normalize_campose: false
   render_size: 256
   fixed_input_views: [25, 28, 31, 34, 26, 36]
@@ -80,17 +78,13 @@ validation_train_dataset:
   render_size: ${train_dataset.render_size}
   fixed_input_views: ${train_dataset.fixed_input_views}
   
-# remove rope
-# output_dir: outputs/splatter_normalize_cam_false/debug/stage2/wonder3D-joint-128-lara-splatter-ROPE-bsz64
-# output_dir: outputs/splatter_normalize_cam_false/debug/stage2-trainable_joint_mid/wonder3D-joint-128-lara-splatter-ROPE-bsz256
-# output_dir: outputs/debug/splatter_normalize_cam_false/stage3-trainable_all/wonder3D-joint-128-lara-splatter-ROPE-bsz128
-output_dir: outputs/human_avatar
+output_dir: outputs/tmlr/lara_6x128x128/stage2
 fovy: 39.6
 
 seed: 42
-train_batch_size: 2
-validation_batch_size: 2
-validation_train_batch_size: 8
+train_batch_size: 16
+validation_batch_size: 4
+validation_train_batch_size: 4
 max_train_steps: 20000
 gradient_accumulation_steps: 1
 gradient_checkpointing: true
@@ -114,7 +108,7 @@ vis_dir: vis
 mixed_precision: fp16
 report_to: tensorboard
 local_rank: -1
-checkpointing_steps: 1000
+checkpointing_steps: 2000
 checkpoints_total_limit: null
 resume_from_checkpoint: latest
 enable_xformers_memory_efficient_attention: true
